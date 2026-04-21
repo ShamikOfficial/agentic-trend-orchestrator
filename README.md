@@ -8,7 +8,7 @@ These modules are implemented as pure Python services and tested without API cou
 
 ## Project Structure
 - `backend/` core models, services, and tests
-- `frontend/` placeholder UI structure
+- `frontend/` Next.js web application (React + Tailwind + shadcn/ui)
 - `docs/` planning, API docs, and progress tracking
 - `cli_runner.ipynb` notebook runner for module testing
 
@@ -41,12 +41,13 @@ python -m jupyter notebook
 ```
 Then open `cli_runner.ipynb` and run cells top-to-bottom.
 
-## Run Web Test UI
+## Run Frontend Web App
 ```powershell
-python -m streamlit run frontend/app.py
+cd frontend
+npm run dev
 ```
-This starts a simple frontend to test Team Assistant and Workflow/Milestones behavior.
+Then open `http://localhost:3000` in your browser.
 
 ## Notes
-- Root `requirements.txt` is for local development, notebook testing, and Streamlit UI testing.
-- `backend/requirements.txt` is kept for backend-specific dependency tracking.
+- Root `requirements.txt` is the single Python dependency source for backend services, tests, and notebooks.
+- Frontend dependencies are managed in `frontend/package.json`.

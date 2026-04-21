@@ -66,7 +66,7 @@ Status values:
 - `docs/progress-tracker.md` maintained
 - API route placeholders created for team/workflow/health
 - backend model and service placeholders created
-- frontend page placeholders created for team and workflow
+- frontend scaffold created with Next.js + Tailwind + shadcn/ui
 
 ## Update Protocol
 When any feature changes:
@@ -80,4 +80,4 @@ When any feature changes:
 - 2026-04-20: Created initial repository structure and placeholder files for backend routes, models, services, tests, and frontend pages.
 - 2026-04-20: Implemented standalone Team Assistant and Workflow core services with tests; API integration intentionally deferred.
 - 2026-04-20: Added root requirements, environment template, root README, and created local `.venv`.
-- 2026-04-21: Added a simple Streamlit frontend (`frontend/app.py`) to test Team Assistant and Workflow/Milestones modules end-to-end.
+- 2026-04-21: Replaced Streamlit frontend with Next.js (React + Tailwind + shadcn/ui) as the primary product UI foundation.

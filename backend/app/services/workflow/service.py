@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from backend.app.models.workflow import Milestone, WorkflowItem, WorkflowStage
 
@@ -15,10 +15,8 @@ def _make_id(prefix: str) -> str:
 
 
 def can_transition(from_stage: WorkflowStage, to_stage: WorkflowStage) -> bool:
-    from_idx = STAGES.index(from_stage)
-    to_idx = STAGES.index(to_stage)
-    # Allow forward single-step moves and one-step rollback.
-    return to_idx == from_idx + 1 or to_idx == from_idx - 1
+    # Dashboard drag-and-drop supports direct moves across any stage.
+    return from_stage != to_stage
 
 
 def create_workflow_item(
@@ -26,6 +24,10 @@ def create_workflow_item(
     description: str = "",
     owner: str | None = None,
     linked_trend: str | None = None,
+    stage: WorkflowStage = "Idea",
+    due_date: date | None = None,
+    comments: list[str] | None = None,
+    links: list[str] | None = None,
 ) -> WorkflowItem:
     return WorkflowItem(
         item_id=_make_id("wf"),
@@ -33,7 +35,10 @@ def create_workflow_item(
         description=description,
         owner=owner,
         linked_trend=linked_trend,
-        stage="Idea",
+        stage=stage,
+        due_date=due_date,
+        comments=comments or [],
+        links=links or [],
     )
 
 
