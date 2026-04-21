@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routes import health, team, workflow
+from backend.app.api.routes import health, team, workflow
 
 
 app = FastAPI(title="Web MVP API", version="0.1.0")

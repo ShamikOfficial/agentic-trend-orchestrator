@@ -1,41 +1,20 @@
-
-name: Web MVP Plan
-overview: Build a web-only MVP by API-enabling the actual trend-detection teammate workflow (ingest/query/summary/trend/export), then layering team/workflow modules and a frontend on top of a documented, living API contract.
----
-  - id: init-structure
-    content: Create monorepo structure (`backend`, `frontend`, `docs`) and baseline FastAPI app with health check.
-    status: done
-  - id: teammate-mapping
-    content: Map trend-detection workflow modules (`ingest.py`, `query.py`, `summarize.py`, `trend.py`, `export.py`) into backend adapter interfaces.
-    status: pending
-  - id: api-doc-foundation
-    content: Create `docs/api-contract.md` and `docs/api-coverage-matrix.md` with endpoint status taxonomy.
-    status: pending
-  - id: backend-api-first
-    content: Implement first production API set (`/ingest`, `/summary/{file_id}`, `/query`, `/trend/{niche}`) using async job status for long-running tasks.
-    status: pending
-  - id: feature-endpoints
-    content: Add Trend, Ideation, Team, Workflow, and Memory API stubs aligned to PRD MVP scope.
-    status: pending
-  - id: web-ui-mvp
-    content: Build web-only frontend screens wired to backend APIs and async status handling.
-    status: pending
-  - id: validation-tests
-    content: Add schema validation, smoke tests, and update docs as APIs move from planned to done.
-    status: pending
-  - id: team-assistant-mvp
-    content: Define and implement AI Team Assistant APIs for summarize, task extraction, owner assignment, and reminders.
-    status: in_progress
-  - id: workflow-milestones-mvp
-    content: Define and implement Workflow & Milestones APIs for Idea -> Brief -> Production -> Review -> Publish lifecycle.
-    status: in_progress
-  - id: delivery-tracker
-    content: Maintain docs-first progress tracker to mark build/enhance/not-started and capture new features added on the go.
-    status: in_progress
----
-
-
 # Web MVP Integration Plan
+
+Build a web-only MVP with standalone Team Assistant and Workflow modules first, then integrate supporting layers incrementally.
+
+## Todo Table
+| ID | Task | Status |
+| --- | --- | --- |
+| `init-structure` | Create monorepo structure (`backend`, `frontend`, `docs`) and baseline app skeleton. | `done` |
+| `teammate-mapping` | Map external workflow modules (`ingest.py`, `query.py`, `summarize.py`, `trend.py`, `export.py`) into adapter interfaces. | `pending` |
+| `api-doc-foundation` | Create and maintain `docs/api-contract.md` and `docs/api-coverage-matrix.md`. | `in_progress` |
+| `backend-api-first` | Implement initial API set with async job status handling. | `pending` |
+| `feature-endpoints` | Add Trend, Ideation, Team, Workflow, and Memory endpoint stubs. | `pending` |
+| `web-ui-mvp` | Build web screens wired to module outputs and backend APIs. | `pending` |
+| `validation-tests` | Add schema validation, smoke tests, and update docs as features progress. | `in_progress` |
+| `team-assistant-mvp` | Build standalone Team Assistant logic (summarize, extract tasks, assign owners, reminders). | `in_progress` |
+| `workflow-milestones-mvp` | Build standalone Workflow & Milestones logic (`Idea -> Brief -> Production -> Review -> Publish`). | `in_progress` |
+| `delivery-tracker` | Keep progress docs updated for build, enhance, and not-started items. | `in_progress` |
 
 ## Assumptions
 - Backend stack: Python + FastAPI (best fit for teammate Python modules).
@@ -105,24 +84,22 @@ flowchart LR
   - Extract actionable tasks.
   - Assign owners.
   - Track and remind deadlines.
-- Initial backend surfaces:
-  - `POST /api/v1/team/summaries`
-  - `POST /api/v1/team/tasks/extract`
-  - `GET /api/v1/team/tasks`
-  - `PATCH /api/v1/team/tasks/{task_id}`
-  - `POST /api/v1/team/reminders/run`
+- Initial implementation (current phase):
+  - core summarization logic
+  - core task extraction + owner assignment logic
+  - core reminder generation logic
+  - unit tests for module behavior
 
 ### 2) Workflow & Milestones (Priority Now)
 - Primary outcomes:
   - Move work through stages: `Idea -> Brief -> Production -> Review -> Publish`.
   - Track milestone status and ownership.
   - Enforce transition rules and approval states.
-- Initial backend surfaces:
-  - `POST /api/v1/workflow/items`
-  - `GET /api/v1/workflow/items`
-  - `PATCH /api/v1/workflow/items/{item_id}/stage`
-  - `POST /api/v1/workflow/milestones`
-  - `PATCH /api/v1/workflow/milestones/{milestone_id}`
+- Initial implementation (current phase):
+  - core workflow item creation logic
+  - stage transition validation and move logic
+  - milestone create/update logic
+  - unit tests for transition and milestone behavior
 
 ## API Documentation Strategy (Living Contract)
 Create and maintain two docs under `docs/`:
@@ -174,7 +151,7 @@ Suggested section format for each endpoint in `api-contract.md`:
 ## Incremental Delivery Phases
 1. **Foundation**: repo scaffold, backend skeleton, docs skeleton, health endpoint.
 2. **First integration**: teammate ingest/summary/query/trend adapters + API wrappers + job status APIs.
-3. **Core creator flows (current focus)**: team assistant + workflow/milestones endpoints.
+3. **Core creator flows (current focus)**: team assistant + workflow/milestones standalone services.
 4. **Frontend web MVP**: connect all pages to APIs with loading/error states.
 5. **Hardening**: tests, validation, API contract updates, demo data.
 
