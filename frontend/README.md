@@ -1,8 +1,18 @@
 # Frontend Setup
 
-Initial placeholder structure for web interface.
+Minimal functional frontend for testing modules.
 
-## Planned pages
-- Team assistant board
-- Workflow and milestones board
-- Trend and query pages
+## Run
+```powershell
+python -m streamlit run frontend/app.py
+```
+
+## Current Scope
+- Team Assistant test panel
+  - Summarize content
+  - Extract tasks
+  - Run reminders
+- Workflow and Milestones test panel
+  - Create workflow item
+  - Move stages
+  - Create milestones

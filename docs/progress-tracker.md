@@ -12,6 +12,7 @@ Status values:
 ## Current Sprint Focus
 - AI Team Assistant
 - Workflow & Milestones
+- Core domain services (no API integration for now)
 
 ## Module Tracker
 
@@ -19,11 +20,9 @@ Status values:
   - **Owner**: Team
   - **Status**: `building`
   - **Build Now**:
-    - `POST /api/v1/team/summaries`
-    - `POST /api/v1/team/tasks/extract`
-    - `GET /api/v1/team/tasks`
-    - `PATCH /api/v1/team/tasks/{task_id}`
-    - `POST /api/v1/team/reminders/run`
+    - standalone summarization service
+    - standalone task extraction and owner assignment
+    - standalone deadline reminder generation
   - **Enhance Later**:
     - owner auto-suggestion confidence scoring
     - recurring reminders and digest mode
@@ -34,11 +33,9 @@ Status values:
   - **Owner**: Team
   - **Status**: `building`
   - **Build Now**:
-    - `POST /api/v1/workflow/items`
-    - `GET /api/v1/workflow/items`
-    - `PATCH /api/v1/workflow/items/{item_id}/stage`
-    - `POST /api/v1/workflow/milestones`
-    - `PATCH /api/v1/workflow/milestones/{milestone_id}`
+    - standalone workflow item lifecycle service
+    - stage transition validator (Idea -> Brief -> Production -> Review -> Publish)
+    - standalone milestone create/update tracking
   - **Enhance Later**:
     - SLA breach alerts
     - approval policy templates by content type
@@ -47,10 +44,9 @@ Status values:
 
 - **Module**: Ingest/Summary/Query/Trend Core
   - **Owner**: Team
-  - **Status**: `building`
+  - **Status**: `not_started`
   - **Build Now**:
-    - health + jobs API
-    - ingest, summary, query, trend wrappers
+    - deferred while Team + Workflow module is being built
   - **Enhance Later**:
     - richer source citations and analytics
 
@@ -82,3 +78,6 @@ When any feature changes:
 ## Update Log
 - 2026-04-20: Initialized tracker and set Team Assistant + Workflow as active build focus.
 - 2026-04-20: Created initial repository structure and placeholder files for backend routes, models, services, tests, and frontend pages.
+- 2026-04-20: Implemented standalone Team Assistant and Workflow core services with tests; API integration intentionally deferred.
+- 2026-04-20: Added root requirements, environment template, root README, and created local `.venv`.
+- 2026-04-21: Added a simple Streamlit frontend (`frontend/app.py`) to test Team Assistant and Workflow/Milestones modules end-to-end.
