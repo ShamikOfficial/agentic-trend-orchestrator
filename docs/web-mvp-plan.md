@@ -1,10 +1,10 @@
----
+
 name: Web MVP Plan
 overview: Build a web-only MVP by API-enabling the actual trend-detection teammate workflow (ingest/query/summary/trend/export), then layering team/workflow modules and a frontend on top of a documented, living API contract.
-todos:
+---
   - id: init-structure
     content: Create monorepo structure (`backend`, `frontend`, `docs`) and baseline FastAPI app with health check.
-    status: pending
+    status: done
   - id: teammate-mapping
     content: Map trend-detection workflow modules (`ingest.py`, `query.py`, `summarize.py`, `trend.py`, `export.py`) into backend adapter interfaces.
     status: pending
@@ -32,8 +32,8 @@ todos:
   - id: delivery-tracker
     content: Maintain docs-first progress tracker to mark build/enhance/not-started and capture new features added on the go.
     status: in_progress
-isProject: false
 ---
+
 
 # Web MVP Integration Plan
 
