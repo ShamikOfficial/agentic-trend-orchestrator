@@ -14,6 +14,29 @@ export interface TeamSummaryResponse {
   action_items_preview?: string[];
 }
 
+export interface ProcessTeamInputRequest {
+  source_type: "chat" | "meeting";
+  content: string;
+  title?: string;
+  owner_candidates?: string[];
+  default_due_days?: number;
+}
+
+export interface ProcessTeamInputResponse {
+  note_log: TeamNoteLog;
+  summary: TeamSummaryResponse;
+  tasks: TeamTask[];
+}
+
+export interface TeamNoteLog {
+  note_id: string;
+  raw_text: string;
+  category: string;
+  category_result: string;
+  source_type: "chat" | "meeting";
+  created_at: string;
+}
+
 export interface ExtractTasksRequest {
   source_ref?: string;
   content?: string;
@@ -63,6 +86,7 @@ export interface UpdateTeamTaskResponse {
 
 export interface RunRemindersRequest {
   window_hours: number;
+  task_ids?: string[];
 }
 
 export interface RunRemindersResponse {
@@ -76,15 +100,21 @@ export interface RunRemindersResponse {
   }>;
 }
 
+export interface ListTeamNotesLogsResponse {
+  items: TeamNoteLog[];
+}
+
 export interface CreateWorkflowItemRequest {
   title: string;
   description?: string;
   owner?: string;
   linked_trend?: string;
+  project?: string;
   stage?: WorkflowStage;
   due_date?: string;
   comments?: string[];
   links?: string[];
+  attachments?: string[];
 }
 
 export interface WorkflowItem {
@@ -94,9 +124,11 @@ export interface WorkflowItem {
   stage: WorkflowStage;
   owner?: string;
   linked_trend?: string;
+  project?: string;
   due_date?: string;
   comments?: string[];
   links?: string[];
+  attachments?: string[];
   created_at?: string;
   updated_at?: string;
 }
@@ -128,9 +160,11 @@ export interface UpdateWorkflowItemRequest {
   description?: string;
   owner?: string;
   linked_trend?: string;
+  project?: string;
   due_date?: string;
   comments?: string[];
   links?: string[];
+  attachments?: string[];
 }
 
 export interface UpdateWorkflowItemResponse {
@@ -155,4 +189,9 @@ export interface WorkflowActivityLog {
 
 export interface ListWorkflowActivityResponse {
   items: WorkflowActivityLog[];
+}
+
+export interface UploadWorkflowAttachmentResponse {
+  name: string;
+  url: string;
 }

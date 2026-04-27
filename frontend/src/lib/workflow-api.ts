@@ -5,6 +5,7 @@ import type {
   DeleteWorkflowItemResponse,
   ListWorkflowActivityResponse,
   ListWorkflowItemsResponse,
+  UploadWorkflowAttachmentResponse,
   WorkflowItem,
   UpdateWorkflowItemRequest,
   UpdateWorkflowItemResponse,
@@ -55,4 +56,19 @@ export function deleteWorkflowItem(itemId: string) {
 
 export function listWorkflowActivityLogs() {
   return apiRequest<ListWorkflowActivityResponse>("/workflow/logs");
+}
+
+export async function uploadWorkflowAttachment(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+  const response = await fetch(`${baseUrl}/workflow/uploads`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(`Upload failed with status ${response.status}`);
+  }
+  return (await response.json()) as UploadWorkflowAttachmentResponse;
 }

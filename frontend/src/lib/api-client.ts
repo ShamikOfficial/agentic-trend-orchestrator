@@ -1,6 +1,11 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
+function readToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem("ato_auth_token") ?? "";
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -22,13 +27,15 @@ export async function apiRequest<TResponse>(
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(readToken() ? { "x-auth-token": readToken() } : {}),
         ...(init?.headers ?? {}),
       },
       cache: "no-store",
     });
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
     throw new ApiError(
-      `Network error while calling ${API_BASE_URL}${path}. Confirm backend is running and CORS is enabled.`,
+      `Network error while calling ${API_BASE_URL}${path}. Confirm backend is running/CORS and check auth session if backend restarted. (${detail})`,
       0,
       error,
     );

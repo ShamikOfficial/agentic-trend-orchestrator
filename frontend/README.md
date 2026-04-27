@@ -22,11 +22,21 @@ Set `NEXT_PUBLIC_API_BASE_URL` when needed. Default is:
 `http://127.0.0.1:8000/api/v1`
 
 ## Current Goal
-Build the product UI modules and connect them to backend APIs defined in `docs/api-contract.md`.
+Ship and polish authenticated Team/Workflow/Chat modules while preparing ingest/trend/query screens.
+
+## Implemented Pages
+- `/` Home dashboard (auth-aware module launcher)
+- `/team` Team Assistant workspace
+- `/workflow` Workflow board + logs + create/edit
+- `/chat` Chat inbox (DM + group conversations)
+
+## API Integration Notes
+- Team and Workflow pages use shared `apiRequest` client.
+- Chat uses dedicated `chat-api` client and token header handling.
+- Backend auth token is stored client-side and sent as `x-auth-token`.
 
 ## Next UI Modules
-- Team Assistant workspace
-- Workflow and Milestones board
 - Trend dashboard
 - Video summary explorer
 - Query and ideation workspace
+- Memory/history view

@@ -2,7 +2,10 @@ import { apiRequest } from "@/lib/api-client";
 import type {
   ExtractTasksRequest,
   ExtractTasksResponse,
+  ListTeamNotesLogsResponse,
   ListTeamTasksResponse,
+  ProcessTeamInputRequest,
+  ProcessTeamInputResponse,
   RunRemindersRequest,
   RunRemindersResponse,
   TeamSummaryRequest,
@@ -25,8 +28,19 @@ export function extractTasks(payload: ExtractTasksRequest) {
   });
 }
 
+export function processTeamInput(payload: ProcessTeamInputRequest) {
+  return apiRequest<ProcessTeamInputResponse>("/team/process", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function listTeamTasks() {
   return apiRequest<ListTeamTasksResponse>("/team/tasks");
+}
+
+export function listTeamNotesLogs() {
+  return apiRequest<ListTeamNotesLogsResponse>("/team/notes/logs");
 }
 
 export function updateTeamTask(taskId: string, payload: UpdateTeamTaskRequest) {

@@ -2,81 +2,108 @@
 
 from __future__ import annotations
 
-import re
+import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
+from backend.app.llm import LlmError, generate_text
+from backend.app.llm.prompts import TEAM_UNIFIED_PROCESS_PROMPT
 from backend.app.models.team import Reminder, Task, TeamSummary
-
-ACTION_PREFIXES = ("action:", "todo:", "-", "*")
 
 
 def _make_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
-def summarize_content(
+def process_input_unified(
     content: str,
     source_type: str = "meeting",
     title: str | None = None,
-) -> TeamSummary:
-    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
-    if not lines:
-        lines = ["No content provided."]
+    owner_candidates: list[str] | None = None,
+    default_due_days: int = 3,
+) -> tuple[str, str, TeamSummary, list[Task]]:
+    owners = owner_candidates or []
+    prompt = TEAM_UNIFIED_PROCESS_PROMPT.render(
+        content=content.strip() or "No content provided.",
+        owner_candidates=", ".join(owners) if owners else "none",
+    )
+    print(
+        "[team-debug] unified_process start "
+        f"content_chars={len(content)} owner_candidates={len(owners)}"
+    )
+    try:
+        raw = generate_text(prompt, system_prompt=TEAM_UNIFIED_PROCESS_PROMPT.system)
+        print(f"[team-debug] llm_raw_preview={raw[:500]!r}")
+        data = _extract_json(raw)
+        print(
+            "[team-debug] llm_json_parsed "
+            f"category={data.get('category')} tasks_count={len(data.get('tasks', [])) if isinstance(data.get('tasks'), list) else 0}"
+        )
+    except LlmError:
+        print("[team-debug] llm_error encountered; using fallback payload")
+        data = _fallback_payload(content)
+    except Exception as exc:
+        print(f"[team-debug] parse_error={exc}; using fallback payload")
+        data = _fallback_payload(content)
 
-    summary_text = " ".join(lines[:3])
-    action_items = []
-    for line in lines:
-        if line.lower().startswith(ACTION_PREFIXES):
-            action_items.append(line.lstrip("-* ").split(":", 1)[-1].strip())
-        if len(action_items) >= 5:
-            break
+    category = _clean_category(str(data.get("category", "Notes")))
+    category_result = str(data.get("category_result", "unknown")).strip() or "unknown"
+    action_items_preview = _as_string_list(data.get("action_items_preview"))
+    summary_text = str(data.get("summary", "")).strip() or "No summary generated."
 
-    return TeamSummary(
+    summary = TeamSummary(
         summary_id=_make_id("sum"),
         source_type=source_type,  # type: ignore[arg-type]
         title=title,
         summary=summary_text,
-        action_items_preview=action_items,
+        action_items_preview=action_items_preview,
     )
+    tasks = _build_tasks_from_payload(
+        raw_tasks=data.get("tasks"),
+        owner_candidates=owners,
+        default_due_days=default_due_days,
+    )
+    print(f"[team-debug] output summary_chars={len(summary.summary)} tasks={len(tasks)} category={category}")
+    return category, category_result, summary, tasks
 
-
-def extract_tasks(
-    content: str,
-    owner_candidates: list[str] | None = None,
-    default_due_days: int = 3,
+def _build_tasks_from_payload(
+    *,
+    raw_tasks: object,
+    owner_candidates: list[str],
+    default_due_days: int,
 ) -> list[Task]:
-    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
-    candidates = owner_candidates or []
+    items = raw_tasks if isinstance(raw_tasks, list) else []
     tasks: list[Task] = []
     owner_idx = 0
-
-    for line in lines:
-        lowered = line.lower()
-        if not lowered.startswith(ACTION_PREFIXES):
+    for item in items:
+        if not isinstance(item, dict):
             continue
-
-        text = line.lstrip("-* ").split(":", 1)[-1].strip()
-        owner = _detect_owner(text, candidates)
-        if owner is None and candidates:
-            owner = candidates[owner_idx % len(candidates)]
+        title = str(item.get("title", "")).strip()
+        description = str(item.get("description", "")).strip()
+        if not title and description:
+            title = description[:80]
+        if not title:
+            continue
+        owner = str(item.get("owner", "")).strip() or None
+        if owner is None and owner_candidates:
+            owner = owner_candidates[owner_idx % len(owner_candidates)]
             owner_idx += 1
-
-        due = _detect_due_date(text, default_due_days)
-        priority = _detect_priority(text)
-
+        priority = str(item.get("priority", "medium")).strip().lower()
+        if priority not in {"low", "medium", "high"}:
+            priority = "medium"
+        due_date = _parse_due_date(str(item.get("due_date", "")).strip(), default_due_days)
         tasks.append(
             Task(
                 task_id=_make_id("tsk"),
-                title=text[:80],
-                description=text,
+                title=title[:80],
+                description=description or title,
                 owner=owner,
-                due_date=due,
-                priority=priority,
+                due_date=due_date,
+                priority=priority,  # type: ignore[arg-type]
                 status="todo",
+                notes=str(item.get("notes", "")).strip(),
             )
         )
-
     return tasks
 
 
@@ -121,26 +148,51 @@ def run_deadline_reminders(tasks: list[Task], window_hours: int = 24) -> list[Re
     return reminders
 
 
-def _detect_owner(text: str, candidates: list[str]) -> str | None:
-    for candidate in candidates:
-        if re.search(rf"\b{re.escape(candidate)}\b", text, flags=re.IGNORECASE):
-            return candidate
-    return None
+def _extract_json(raw: str) -> dict:
+    content = raw.strip()
+    if content.startswith("```"):
+        content = content.strip("`")
+        content = content.replace("json", "", 1).strip()
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("No JSON object found in LLM output.")
+    return json.loads(content[start : end + 1])
 
 
-def _detect_due_date(text: str, default_due_days: int) -> date:
-    lowered = text.lower()
-    if "today" in lowered:
-        return date.today()
-    if "tomorrow" in lowered:
-        return date.today() + timedelta(days=1)
+def _parse_due_date(raw_due: str, default_due_days: int) -> date:
+    if raw_due:
+        try:
+            return datetime.fromisoformat(f"{raw_due}T00:00:00+00:00").date()
+        except ValueError:
+            pass
     return date.today() + timedelta(days=default_due_days)
 
 
-def _detect_priority(text: str) -> str:
-    lowered = text.lower()
-    if "urgent" in lowered or "asap" in lowered:
-        return "high"
-    if "low" in lowered:
-        return "low"
-    return "medium"
+def _as_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _clean_category(raw: str) -> str:
+    normalized = raw.strip().lower()
+    if "meeting" in normalized:
+        return "Meeting Notes"
+    if "chat" in normalized:
+        return "Chat Logs"
+    if "call" in normalized:
+        return "Call Log"
+    if "note" in normalized:
+        return "Notes"
+    return "Other"
+
+
+def _fallback_payload(content: str) -> dict:
+    return {
+        "category": "Notes",
+        "category_result": "unknown",
+        "summary": content.strip()[:400] or "No content provided.",
+        "action_items_preview": [],
+        "tasks": [],
+    }
