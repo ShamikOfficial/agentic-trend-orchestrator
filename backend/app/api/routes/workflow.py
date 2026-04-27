@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from backend.app.models.workflow import Milestone, MilestoneStatus, WorkflowItem, WorkflowStage
@@ -11,6 +12,8 @@ router = APIRouter()
 _workflow_items: dict[str, WorkflowItem] = {}
 _milestones: dict[str, Milestone] = {}
 _workflow_activity_logs: list[dict] = []
+_uploads_dir = Path("uploads")
+_uploads_dir.mkdir(parents=True, exist_ok=True)
 
 
 class CreateWorkflowItemRequest(BaseModel):
@@ -18,10 +21,12 @@ class CreateWorkflowItemRequest(BaseModel):
     description: str = ""
     owner: str | None = None
     linked_trend: str | None = None
+    project: str = "General"
     stage: WorkflowStage = "Idea"
     due_date: date | None = None
     comments: list[str] = Field(default_factory=list)
     links: list[str] = Field(default_factory=list)
+    attachments: list[str] = Field(default_factory=list)
 
 
 class ListWorkflowItemsResponse(BaseModel):
@@ -59,9 +64,16 @@ class UpdateWorkflowItemRequest(BaseModel):
     description: str | None = None
     owner: str | None = None
     linked_trend: str | None = None
+    project: str | None = None
     due_date: date | None = None
     comments: list[str] | None = None
     links: list[str] | None = None
+    attachments: list[str] | None = None
+
+
+class UploadAttachmentResponse(BaseModel):
+    name: str
+    url: str
 
 
 class CreateMilestoneRequest(BaseModel):
@@ -104,10 +116,12 @@ def create_workflow_item(payload: CreateWorkflowItemRequest) -> dict:
         description=payload.description,
         owner=payload.owner,
         linked_trend=payload.linked_trend,
+        project=payload.project,
         stage=payload.stage,
         due_date=payload.due_date,
         comments=payload.comments,
         links=payload.links,
+        attachments=payload.attachments,
     )
     _workflow_items[item.item_id] = item
     _append_activity(
@@ -117,6 +131,16 @@ def create_workflow_item(payload: CreateWorkflowItemRequest) -> dict:
         item_title=item.title,
     )
     return {"item_id": item.item_id, "stage": item.stage}
+
+
+@router.post("/workflow/uploads")
+async def upload_workflow_attachment(file: UploadFile = File(...)) -> UploadAttachmentResponse:
+    extension = Path(file.filename or "").suffix
+    saved_name = f"{service._make_id('att')}{extension}"
+    destination = _uploads_dir / saved_name
+    content = await file.read()
+    destination.write_bytes(content)
+    return UploadAttachmentResponse(name=file.filename or saved_name, url=f"/uploads/{saved_name}")
 
 
 @router.get("/workflow/items")

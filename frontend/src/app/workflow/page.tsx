@@ -7,6 +7,7 @@ import {
   deleteWorkflowItem,
   listWorkflowActivityLogs,
   listWorkflowItems,
+  uploadWorkflowAttachment,
   updateWorkflowItem,
   updateWorkflowStage,
 } from "@/lib/workflow-api";
@@ -59,22 +60,26 @@ export default function WorkflowPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [owner, setOwner] = useState("");
+  const [project, setProject] = useState("General");
   const [linkedTrend, setLinkedTrend] = useState("");
   const [stage, setStage] = useState<WorkflowStage>("Idea");
   const [dueDate, setDueDate] = useState("");
   const [commentsInput, setCommentsInput] = useState("");
   const [linksInput, setLinksInput] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
   const [items, setItems] = useState<WorkflowItem[]>([]);
   const [activityLogs, setActivityLogs] = useState<WorkflowActivityLog[]>([]);
   const [editingItemId, setEditingItemId] = useState<string>("");
   const [editTitle, setEditTitle] = useState("");
   const [editOwner, setEditOwner] = useState("");
+  const [editProject, setEditProject] = useState("General");
   const [editDescription, setEditDescription] = useState("");
   const [editLinkedTrend, setEditLinkedTrend] = useState("");
   const [editStage, setEditStage] = useState<WorkflowStage>("Idea");
   const [editDueDate, setEditDueDate] = useState("");
   const [editCommentsInput, setEditCommentsInput] = useState("");
   const [editLinksInput, setEditLinksInput] = useState("");
+  const [editAttachments, setEditAttachments] = useState<string[]>([]);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropStage, setDropStage] = useState<WorkflowStage | null>(null);
   const [flashMessage, setFlashMessage] = useState<string>("");
@@ -102,6 +107,7 @@ export default function WorkflowPage() {
         title: title.trim(),
         description: description.trim(),
         owner: owner.trim() || undefined,
+        project: project.trim() || "General",
         linked_trend: linkedTrend.trim() || undefined,
         stage,
         due_date: dueDate || undefined,
@@ -113,15 +119,18 @@ export default function WorkflowPage() {
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
+        attachments,
       });
       setTitle("");
       setDescription("");
       setOwner("");
+      setProject("General");
       setLinkedTrend("");
       setStage("Idea");
       setDueDate("");
       setCommentsInput("");
       setLinksInput("");
+      setAttachments([]);
       await refreshBoard();
       await refreshLogs();
       setFlashMessage("Workflow item created.");
@@ -171,12 +180,50 @@ export default function WorkflowPage() {
     setEditingItemId(item.item_id);
     setEditTitle(item.title);
     setEditOwner(item.owner ?? "");
+    setEditProject(item.project ?? "General");
     setEditDescription(item.description ?? "");
     setEditLinkedTrend(item.linked_trend ?? "");
     setEditStage(item.stage);
     setEditDueDate(item.due_date ?? "");
     setEditCommentsInput((item.comments ?? []).join("\n"));
     setEditLinksInput((item.links ?? []).join("\n"));
+    setEditAttachments(item.attachments ?? []);
+  }
+
+  async function handleCreateUpload(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setIsBusy(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        const response = await uploadWorkflowAttachment(file);
+        uploaded.push(response.url);
+      }
+      setAttachments((prev) => [...prev, ...uploaded]);
+      setFlashMessage("Files uploaded.");
+    } catch (error) {
+      setFlashMessage(`Upload failed: ${String(error)}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleEditUpload(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setIsBusy(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        const response = await uploadWorkflowAttachment(file);
+        uploaded.push(response.url);
+      }
+      setEditAttachments((prev) => [...prev, ...uploaded]);
+      setFlashMessage("Files uploaded.");
+    } catch (error) {
+      setFlashMessage(`Upload failed: ${String(error)}`);
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   function onDragStart(itemId: string) {
@@ -216,6 +263,7 @@ export default function WorkflowPage() {
       await updateWorkflowItem(editingItemId, {
         title: editTitle.trim() || undefined,
         owner: editOwner.trim() || undefined,
+        project: editProject.trim() || "General",
         description: editDescription,
         linked_trend: editLinkedTrend.trim() || undefined,
         due_date: editDueDate || undefined,
@@ -227,6 +275,7 @@ export default function WorkflowPage() {
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
+        attachments: editAttachments,
       });
       await refreshBoard();
       await refreshLogs();
@@ -305,6 +354,15 @@ export default function WorkflowPage() {
                 placeholder="Assignee name"
               />
             </label>
+            <label className="space-y-2">
+              <span className="text-sm font-medium">Project</span>
+              <input
+                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
+                value={project}
+                onChange={(event) => setProject(event.target.value)}
+                placeholder="Project name"
+              />
+            </label>
             <label className="space-y-2 md:col-span-2">
               <span className="text-sm font-medium">Description</span>
               <textarea
@@ -372,6 +430,24 @@ export default function WorkflowPage() {
                 placeholder="https://..."
               />
             </label>
+            <label className="space-y-2 md:col-span-2">
+              <span className="text-sm font-medium">Media / Docs Upload</span>
+              <input
+                className="h-11 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                type="file"
+                multiple
+                onChange={(event) => void handleCreateUpload(event.target.files)}
+              />
+              {attachments.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {attachments.map((fileUrl) => (
+                    <span key={fileUrl} className="rounded bg-muted px-2 py-1 text-xs">
+                      {fileUrl}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </label>
             <div className="flex gap-2 md:col-span-2">
               <button className={buttonVariants()} type="submit" disabled={isBusy}>
                 Save Work Item
@@ -383,10 +459,12 @@ export default function WorkflowPage() {
                   setTitle("");
                   setDescription("");
                   setOwner("");
+                  setProject("General");
                   setLinkedTrend("");
                   setDueDate("");
                   setCommentsInput("");
                   setLinksInput("");
+                  setAttachments([]);
                   setStage("Idea");
                 }}
                 disabled={isBusy}
@@ -449,6 +527,10 @@ export default function WorkflowPage() {
                           <p className="truncate text-xs font-semibold">{item.title}</p>
                           <p className="truncate text-[10px] text-muted-foreground">
                             {item.owner || "Unassigned"}
+                          </p>
+                          <p className="truncate text-[10px] text-muted-foreground">
+                            {item.project || "General"} •{" "}
+                            {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
                           </p>
                           <div className="mt-2 flex flex-col gap-1">
                             <select
@@ -576,6 +658,14 @@ export default function WorkflowPage() {
                     onChange={(event) => setEditOwner(event.target.value)}
                   />
                 </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Project</span>
+                  <input
+                    className="h-11 w-full rounded-md border bg-background px-3 text-sm"
+                    value={editProject}
+                    onChange={(event) => setEditProject(event.target.value)}
+                  />
+                </label>
                 <label className="space-y-2 md:col-span-2">
                   <span className="text-sm font-medium">Description</span>
                   <textarea
@@ -630,6 +720,24 @@ export default function WorkflowPage() {
                     value={editLinksInput}
                     onChange={(event) => setEditLinksInput(event.target.value)}
                   />
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-medium">Media / Docs Upload</span>
+                  <input
+                    className="h-11 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    type="file"
+                    multiple
+                    onChange={(event) => void handleEditUpload(event.target.files)}
+                  />
+                  {editAttachments.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {editAttachments.map((fileUrl) => (
+                        <span key={fileUrl} className="rounded bg-muted px-2 py-1 text-xs">
+                          {fileUrl}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </label>
               </div>
             </div>

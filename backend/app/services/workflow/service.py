@@ -24,10 +24,12 @@ def create_workflow_item(
     description: str = "",
     owner: str | None = None,
     linked_trend: str | None = None,
+    project: str = "General",
     stage: WorkflowStage = "Idea",
     due_date: date | None = None,
     comments: list[str] | None = None,
     links: list[str] | None = None,
+    attachments: list[str] | None = None,
 ) -> WorkflowItem:
     return WorkflowItem(
         item_id=_make_id("wf"),
@@ -35,10 +37,12 @@ def create_workflow_item(
         description=description,
         owner=owner,
         linked_trend=linked_trend,
+        project=project,
         stage=stage,
         due_date=due_date,
         comments=comments or [],
         links=links or [],
+        attachments=attachments or [],
     )
 
 

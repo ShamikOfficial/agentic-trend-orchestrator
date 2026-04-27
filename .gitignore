@@ -1,0 +1,11 @@
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter notebooks
+*.ipynb
+
+# Local environment secrets
+.env
+

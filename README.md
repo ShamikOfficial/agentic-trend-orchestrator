@@ -1,16 +1,17 @@
 # Web MVP Workspace
 
-This repository currently focuses on standalone core modules for:
-- AI Team Assistant
-- Workflow and Milestones
-
-These modules are implemented as pure Python services and tested without API coupling.
+This repository contains a web MVP for:
+- Auth + session-guarded workspace access
+- Team Assistant (notes -> summary -> tasks -> reminders)
+- Workflow management (board + stage moves + milestones + uploads)
+- Chat (DM + groups + join requests)
 
 ## Project Structure
-- `backend/` core models, services, and tests
+- `backend/` FastAPI app, routes, services, and models
 - `frontend/` Next.js web application (React + Tailwind + shadcn/ui)
-- `docs/` planning, API docs, and progress tracking
-- `cli_runner.ipynb` notebook runner for module testing
+- `docs/` API contract, coverage matrix, and progress tracking
+- `uploads/` attachment files served by backend
+- `logs/` API call logs
 
 ## Environment Setup (Windows PowerShell)
 1. Create virtual environment:
@@ -35,13 +36,12 @@ These modules are implemented as pure Python services and tested without API cou
 python -m pytest backend/tests
 ```
 
-## Run Notebook CLI Tester
+## Run Backend API
 ```powershell
-python -m jupyter notebook
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
-Then open `cli_runner.ipynb` and run cells top-to-bottom.
 
-## Run Frontend Web App
+## Run Frontend Web App (separate terminal)
 ```powershell
 cd frontend
 npm run dev
@@ -49,5 +49,7 @@ npm run dev
 Then open `http://localhost:3000` in your browser.
 
 ## Notes
-- Root `requirements.txt` is the single Python dependency source for backend services, tests, and notebooks.
+- Root `requirements.txt` is the single Python dependency source for backend services and tests.
 - Frontend dependencies are managed in `frontend/package.json`.
+- API base URL defaults to `http://127.0.0.1:8000/api/v1`.
+- Most `/api/v1` routes require `x-auth-token`; register/login routes are public.

@@ -1,146 +1,187 @@
 # API Coverage Matrix
 
-This document tracks API scope, teammate coverage, and build status.
+Tracks API scope and real implementation status in this repository.
 
 Status values:
-- `exists_in_teammate`: logic exists in teammate repo module/CLI.
-- `wrapped`: selected to expose via backend API first.
-- `new_required`: required by web UI but not directly present as callable service.
-- `planned`: future module in MVP plan, not started.
-- `building`: currently being implemented.
-- `enhancing`: implemented baseline, now improving behavior/quality.
+- `done`: implemented and used by frontend or verified callable
+- `building`: implemented baseline but still evolving
+- `planned`: not implemented yet
 
-## Core Pipeline APIs
-
-- **Feature**: Ingest
-  - **Endpoint**: `POST /api/v1/ingest`
-  - **Teammate Source**: `ingest.py::ingest_video`
-  - **Status**: `wrapped`
-  - **Notes**: Long-running; must use async jobs.
-
-- **Feature**: Ingest
-  - **Endpoint**: `POST /api/v1/ingest/batch`
-  - **Teammate Source**: `run.py::cmd_ingest_all`
-  - **Status**: `wrapped`
-  - **Notes**: Uses folder-level processing; add input validation for directory.
-
-- **Feature**: Summary
-  - **Endpoint**: `GET /api/v1/summary/{file_id}`
-  - **Teammate Source**: `summarize.py::summarize_video`, `summarize.py::detect_niche_topic`
-  - **Status**: `wrapped`
-  - **Notes**: If summary exists in `video_summaries`, prefer cached read.
-
-- **Feature**: Query
-  - **Endpoint**: `POST /api/v1/query`
-  - **Teammate Source**: `query.py` (embed + search + answer)
-  - **Status**: `wrapped`
-  - **Notes**: Support global and `file_id` scoped modes.
-
-- **Feature**: Trend
-  - **Endpoint**: `POST /api/v1/trend/{niche}`
-  - **Teammate Source**: `trend.py::run_trend`
-  - **Status**: `wrapped`
-  - **Notes**: Prefer async and persist job output for retrieval.
-
-- **Feature**: Trend
-  - **Endpoint**: `GET /api/v1/trend/jobs/{job_id}`
-  - **Teammate Source**: none (API orchestration)
-  - **Status**: `new_required`
-  - **Notes**: Needed to fetch async results in frontend.
-
-- **Feature**: Export
-  - **Endpoint**: `POST /api/v1/export`
-  - **Teammate Source**: `export.py::export_all`
-  - **Status**: `wrapped`
-  - **Notes**: Expose as async job due to potential runtime.
+## Platform + Auth
 
 - **Feature**: Platform
   - **Endpoint**: `GET /api/v1/health`
-  - **Teammate Source**: none
-  - **Status**: `new_required`
-  - **Notes**: Should include OpenAI and Milvus checks.
+  - **Status**: `done`
+  - **Notes**: returns API status and dependency flags (currently static false values for external services).
 
-- **Feature**: Platform
-  - **Endpoint**: `GET /api/v1/jobs/{job_id}`
-  - **Teammate Source**: none
-  - **Status**: `new_required`
-  - **Notes**: Shared async polling contract.
+- **Feature**: Auth
+  - **Endpoint**: `POST /api/v1/auth/register`
+  - **Status**: `done`
+  - **Notes**: in-memory user creation.
 
-## Web UI Support APIs
+- **Feature**: Auth
+  - **Endpoint**: `POST /api/v1/auth/login`
+  - **Status**: `done`
+  - **Notes**: returns token + safe user payload.
 
-- **Feature**: Memory
-  - **Endpoint**: `GET /api/v1/videos`
-  - **Teammate Source**: `video_summaries` query via `db.py`
-  - **Status**: `new_required`
-  - **Notes**: Needed for dashboard list/filter/pagination.
+- **Feature**: Auth
+  - **Endpoint**: `GET /api/v1/auth/me`
+  - **Status**: `done`
+  - **Notes**: requires `x-auth-token`.
 
-- **Feature**: Memory
-  - **Endpoint**: `GET /api/v1/videos/{file_id}`
-  - **Teammate Source**: `video_summaries` query
-  - **Status**: `new_required`
-  - **Notes**: Needed for detail drawer/page.
+- **Feature**: Security
+  - **Endpoint**: middleware guard over `/api/v1/**`
+  - **Status**: `done`
+  - **Notes**: all protected routes require token except `/health`, `/auth/register`, `/auth/login`.
 
-- **Feature**: Ideation
-  - **Endpoint**: `POST /api/v1/ideation/generate`
-  - **Teammate Source**: combines `trend.py` + `query.py` context
-  - **Status**: `planned`
-  - **Notes**: Wrapper endpoint for frontend ideation panel.
+## Team Assistant APIs
 
 - **Feature**: Team
   - **Endpoint**: `POST /api/v1/team/summaries`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Priority module for chat/meeting summarization.
+  - **Status**: `done`
+  - **Notes**: summarize input and seed task objects.
 
 - **Feature**: Team
   - **Endpoint**: `POST /api/v1/team/tasks/extract`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Extract structured tasks from summary/transcript.
+  - **Status**: `done`
+  - **Notes**: extract tasks from raw content or summary reference.
 
 - **Feature**: Team
-  - **Endpoint**: `GET /api/v1/team/tasks`, `PATCH /api/v1/team/tasks/{task_id}`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Ownership, due-date, priority, and status updates.
+  - **Endpoint**: `POST /api/v1/team/process`
+  - **Status**: `done`
+  - **Notes**: unified classify + summarize + task extraction; used in UI.
+
+- **Feature**: Team
+  - **Endpoint**: `GET /api/v1/team/notes/logs`
+  - **Status**: `done`
+  - **Notes**: returns structured note processing logs.
+
+- **Feature**: Team
+  - **Endpoint**: `GET /api/v1/team/tasks`
+  - **Status**: `done`
+  - **Notes**: list extracted tasks.
+
+- **Feature**: Team
+  - **Endpoint**: `PATCH /api/v1/team/tasks/{task_id}`
+  - **Status**: `done`
+  - **Notes**: update owner/status/due_date/notes.
 
 - **Feature**: Team
   - **Endpoint**: `POST /api/v1/team/reminders/run`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Detect near-due/overdue tasks and generate reminder payloads.
+  - **Status**: `done`
+  - **Notes**: computes due-soon/overdue reminders.
+
+## Workflow APIs
 
 - **Feature**: Workflow
-  - **Endpoint**: `POST /api/v1/workflow/items`, `GET /api/v1/workflow/items`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Board model for Idea -> Brief -> Production -> Review -> Publish.
+  - **Endpoint**: `POST /api/v1/workflow/items`
+  - **Status**: `done`
+  - **Notes**: create work item with metadata.
+
+- **Feature**: Workflow
+  - **Endpoint**: `POST /api/v1/workflow/uploads`
+  - **Status**: `done`
+  - **Notes**: upload attachment and return `/uploads/...` URL.
+
+- **Feature**: Workflow
+  - **Endpoint**: `GET /api/v1/workflow/items`
+  - **Status**: `done`
+  - **Notes**: list all workflow items.
+
+- **Feature**: Workflow
+  - **Endpoint**: `GET /api/v1/workflow/items/{item_id}`
+  - **Status**: `done`
+  - **Notes**: fetch one workflow item.
+
+- **Feature**: Workflow
+  - **Endpoint**: `PATCH /api/v1/workflow/items/{item_id}`
+  - **Status**: `done`
+  - **Notes**: update work item fields.
+
+- **Feature**: Workflow
+  - **Endpoint**: `DELETE /api/v1/workflow/items/{item_id}`
+  - **Status**: `done`
+  - **Notes**: deletes item and linked milestones.
 
 - **Feature**: Workflow
   - **Endpoint**: `PATCH /api/v1/workflow/items/{item_id}/stage`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Transition validation and optional rollback rules.
+  - **Status**: `done`
+  - **Notes**: validates transitions via workflow service.
 
 - **Feature**: Workflow
-  - **Endpoint**: `POST /api/v1/workflow/milestones`, `PATCH /api/v1/workflow/milestones/{milestone_id}`
-  - **Teammate Source**: none
-  - **Status**: `building`
-  - **Notes**: Deadline checkpoints and completion tracking.
+  - **Endpoint**: `GET /api/v1/workflow/logs`
+  - **Status**: `done`
+  - **Notes**: activity log stream.
 
-## Suggested Build Order
-1. `GET /api/v1/health`
-2. Async infra: `GET /api/v1/jobs/{job_id}`
-3. `POST /api/v1/ingest`
-4. `GET /api/v1/summary/{file_id}`
-5. `POST /api/v1/query`
-6. `POST /api/v1/trend/{niche}` + `GET /api/v1/trend/jobs/{job_id}`
-7. `GET /api/v1/videos`
-8. `POST /api/v1/export`
-9. Team Assistant APIs: summaries, task extraction, task updates, reminders
-10. Workflow APIs: items, stage transitions, milestones
-11. Planned module after current focus: ideation
+- **Feature**: Workflow
+  - **Endpoint**: `POST /api/v1/workflow/milestones`
+  - **Status**: `done`
+  - **Notes**: create milestone for existing item.
+
+- **Feature**: Workflow
+  - **Endpoint**: `PATCH /api/v1/workflow/milestones/{milestone_id}`
+  - **Status**: `done`
+  - **Notes**: update milestone fields.
+
+## Chat APIs
+
+- **Feature**: Chat
+  - **Endpoint**: `GET /api/v1/chat/users`
+  - **Status**: `done`
+  - **Notes**: list users excluding current user.
+
+- **Feature**: Chat
+  - **Endpoint**: `POST /api/v1/chat/dm/{target_user_id}`, `GET /api/v1/chat/dm/{target_user_id}`
+  - **Status**: `done`
+  - **Notes**: direct message send/list.
+
+- **Feature**: Chat
+  - **Endpoint**: `POST /api/v1/chat/groups`, `GET /api/v1/chat/groups`
+  - **Status**: `done`
+  - **Notes**: group create/list with joined/pending info.
+
+- **Feature**: Chat
+  - **Endpoint**: `GET /api/v1/chat/search`
+  - **Status**: `done`
+  - **Notes**: search users and groups.
+
+- **Feature**: Chat
+  - **Endpoint**: `POST /api/v1/chat/groups/{group_id}/request-join`
+  - **Status**: `done`
+  - **Notes**: submit join request.
+
+- **Feature**: Chat
+  - **Endpoint**: `GET /api/v1/chat/groups/{group_id}/requests`
+  - **Status**: `done`
+  - **Notes**: admin-only request list.
+
+- **Feature**: Chat
+  - **Endpoint**: `POST /api/v1/chat/groups/{group_id}/requests/action`
+  - **Status**: `done`
+  - **Notes**: admin approve/reject join requests.
+
+- **Feature**: Chat
+  - **Endpoint**: `POST /api/v1/chat/groups/{group_id}/messages`, `GET /api/v1/chat/groups/{group_id}/messages`
+  - **Status**: `done`
+  - **Notes**: group messaging for members.
+
+## Planned Next APIs
+
+- **Feature**: Ingest/Summary/Query/Trend/Export
+  - **Endpoint**: `POST /api/v1/ingest`, `GET /api/v1/summary/{file_id}`, `POST /api/v1/query`, `POST /api/v1/trend/{niche}`, `POST /api/v1/export`
+  - **Status**: `planned`
+  - **Notes**: teammate workflow adapters not wired yet.
+
+- **Feature**: Async Jobs
+  - **Endpoint**: `GET /api/v1/jobs/{job_id}`, `GET /api/v1/trend/jobs/{job_id}`
+  - **Status**: `planned`
+  - **Notes**: needed for long-running LLM/video tasks.
+
+- **Feature**: Ideation
+  - **Endpoint**: `POST /api/v1/ideation/generate`
+  - **Status**: `planned`
+  - **Notes**: depends on trend/query integration.
 
 ## Change Log
-- 2026-04-20: Initial matrix created from teammate repo `trend-detection-content-workflow`.
-- 2026-04-20: Prioritized Team Assistant + Workflow & Milestones APIs and marked as `building`.
+- 2026-04-20: Initial matrix created.
+- 2026-04-27: Rebased matrix on implemented endpoints in `health`, `team`, `workflow`, and `chat` route modules.

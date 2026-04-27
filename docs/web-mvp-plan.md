@@ -1,19 +1,21 @@
 # Web MVP Integration Plan
 
-Build a web-only MVP with standalone Team Assistant and Workflow modules first, then integrate supporting layers incrementally.
+Build a web-only MVP with auth, Team Assistant, Workflow, and Chat as the first complete user flow, then integrate ingest/query/trend adapters incrementally.
 
 ## Todo Table
 | ID | Task | Status |
 | --- | --- | --- |
 | `init-structure` | Create monorepo structure (`backend`, `frontend`, `docs`) and baseline app skeleton. | `done` |
 | `teammate-mapping` | Map external workflow modules (`ingest.py`, `query.py`, `summarize.py`, `trend.py`, `export.py`) into adapter interfaces. | `pending` |
-| `api-doc-foundation` | Create and maintain `docs/api-contract.md` and `docs/api-coverage-matrix.md`. | `in_progress` |
-| `backend-api-first` | Implement initial API set with async job status handling. | `pending` |
-| `feature-endpoints` | Add Trend, Ideation, Team, Workflow, and Memory endpoint stubs. | `pending` |
-| `web-ui-mvp` | Build web screens wired to module outputs and backend APIs. | `pending` |
+| `api-doc-foundation` | Create and maintain `docs/api-contract.md` and `docs/api-coverage-matrix.md`. | `done` |
+| `backend-api-first` | Implement initial API set with auth guard and modular routes. | `done` |
+| `feature-endpoints` | Add Team, Workflow, Chat, and auth endpoints for first web flow. | `done` |
+| `web-ui-mvp` | Build web screens wired to Team/Workflow/Chat APIs. | `done` |
 | `validation-tests` | Add schema validation, smoke tests, and update docs as features progress. | `in_progress` |
-| `team-assistant-mvp` | Build standalone Team Assistant logic (summarize, extract tasks, assign owners, reminders). | `in_progress` |
-| `workflow-milestones-mvp` | Build standalone Workflow & Milestones logic (`Idea -> Brief -> Production -> Review -> Publish`). | `in_progress` |
+| `team-assistant-mvp` | Build Team Assistant logic + API + page (summary, tasks, reminders, logs). | `done` |
+| `workflow-milestones-mvp` | Build Workflow logic + API + page (`Idea -> Brief -> Production -> Review -> Publish`). | `done` |
+| `chat-mvp` | Add auth-protected DM/group chat endpoints + chat page. | `done` |
+| `ingest-query-trend-adapters` | Wire teammate pipeline modules through backend APIs. | `pending` |
 | `delivery-tracker` | Keep progress docs updated for build, enhance, and not-started items. | `in_progress` |
 
 ## Assumptions
@@ -22,7 +24,7 @@ Build a web-only MVP with standalone Team Assistant and Workflow modules first, 
 - Scope is web interface only (no Android integration).
 
 ## Current Codebase Reality
-- Your current repo is effectively a blank slate (`LICENSE` only): [C:/Users/SUDHENDU BASU/OneDrive/Documents/Shamik/Coding/Hackathon/agentic-trend-orchestrator/LICENSE](C:/Users/SUDHENDU BASU/OneDrive/Documents/Shamik/Coding/Hackathon/agentic-trend-orchestrator/LICENSE)
+- This repo now includes an active FastAPI backend and Next.js frontend with shipped Team/Workflow/Chat modules.
 - Correct teammate repo already implements core creator workflows via CLI commands in [C:/Users/SUDHENDU BASU/OneDrive/Documents/Shamik/Coding/Hackathon/trend-detection-content-workflow/run.py](C:/Users/SUDHENDU BASU/OneDrive/Documents/Shamik/Coding/Hackathon/trend-detection-content-workflow/run.py)
 - Core reusable modules and capabilities:
   - Video ingestion pipeline (ffmpeg + Whisper + GPT-4o + embeddings + Milvus): [C:/Users/SUDHENDU BASU/OneDrive/Documents/Shamik/Coding/Hackathon/trend-detection-content-workflow/ingest.py](C:/Users/SUDHENDU BASU/OneDrive/Documents/Shamik/Coding/Hackathon/trend-detection-content-workflow/ingest.py)
@@ -78,28 +80,35 @@ flowchart LR
 - Add health checks for API + OpenAI key presence + Milvus connectivity.
 
 ## Current Priority Modules
-### 1) AI Team Assistant (Priority Now)
+### 1) AI Team Assistant (Shipped, now enhancing)
 - Primary outcomes:
   - Summarize chat/meeting notes.
   - Extract actionable tasks.
   - Assign owners.
   - Track and remind deadlines.
-- Initial implementation (current phase):
-  - core summarization logic
-  - core task extraction + owner assignment logic
-  - core reminder generation logic
-  - unit tests for module behavior
+- Current implementation:
+  - summarization + extraction + reminders APIs
+  - `POST /api/v1/team/process` unified endpoint
+  - logs API and frontend task/logs tabs
+  - move-selected-task into workflow item flow in UI
 
-### 2) Workflow & Milestones (Priority Now)
+### 2) Workflow & Milestones (Shipped, now enhancing)
 - Primary outcomes:
   - Move work through stages: `Idea -> Brief -> Production -> Review -> Publish`.
   - Track milestone status and ownership.
   - Enforce transition rules and approval states.
-- Initial implementation (current phase):
-  - core workflow item creation logic
-  - stage transition validation and move logic
-  - milestone create/update logic
-  - unit tests for transition and milestone behavior
+- Current implementation:
+  - work item CRUD APIs
+  - stage transition + validation API
+  - milestone create/update APIs
+  - attachment upload + static serving
+  - workflow activity logs API + dashboard/logs/edit UI
+
+### 3) Auth + Chat (Shipped)
+- Registration/login/me APIs
+- token guard middleware over protected `/api/v1` routes
+- DM + group chat APIs (search, join requests, admin approvals, messaging)
+- frontend login panel, home auth-aware view, and chat inbox page
 
 ## API Documentation Strategy (Living Contract)
 Create and maintain two docs under `docs/`:
@@ -137,23 +146,21 @@ Suggested section format for each endpoint in `api-contract.md`:
   - new line in progress tracker with rationale.
 
 ## Frontend Plan (Web Interface)
-- Build web app against API-first contracts only (no direct model/script calls).
-- Deliver web MVP pages:
-  - Video ingestion/upload + processing status
-  - Trend dashboard
-  - Search/query + ideation workspace
-  - Video summary explorer
-  - Team task board + milestones
-  - Knowledge history view
-- Add API client module with typed request/response contracts matching `docs/api-contract.md`.
-- Add status indicators for async jobs and model latency.
+- Completed pages:
+  - Home dashboard (`/`) with module cards and auth-aware state
+  - Team assistant workspace (`/team`)
+  - Workflow board (`/workflow`)
+  - Chat inbox (`/chat`)
+- API clients are wired for Team, Workflow, and Chat flows.
+- Next pages to build after adapter integration:
+  - ingest/upload, summary explorer, query/ideation, trend dashboard, memory/history.
 
 ## Incremental Delivery Phases
-1. **Foundation**: repo scaffold, backend skeleton, docs skeleton, health endpoint.
-2. **First integration**: teammate ingest/summary/query/trend adapters + API wrappers + job status APIs.
-3. **Core creator flows (current focus)**: team assistant + workflow/milestones standalone services.
-4. **Frontend web MVP**: connect all pages to APIs with loading/error states.
-5. **Hardening**: tests, validation, API contract updates, demo data.
+1. **Foundation**: repo scaffold, backend skeleton, docs skeleton, health endpoint. (`done`)
+2. **Core creator flows**: auth + team + workflow + chat APIs and pages. (`done`)
+3. **Adapter integration**: teammate ingest/summary/query/trend wrappers + async job APIs. (`next`)
+4. **Expanded frontend**: trend/query/ideation/memory pages. (`next`)
+5. **Hardening**: persistence, tests, validation, and demo scenarios. (`ongoing`)
 
 ## Risks and Mitigations
 - **External dependency failures**: add retries/timeouts around OpenAI calls and explicit error surface in API responses.
