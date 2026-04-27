@@ -25,7 +25,7 @@ export function HomeClient() {
 
   if (!token) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-8 md:px-8">
+      <main className="flex min-h-screen w-full flex-col gap-4 px-4 py-8 md:px-10">
         <LoginPanel bannerMessage={bannerMessage} bannerIsError={bannerIsError} />
       </main>
     );
@@ -58,11 +58,10 @@ export function HomeClient() {
   ];
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
+    <main className="flex min-h-full w-full flex-col gap-6 px-4 py-8 md:px-10">
       <section className="rounded-2xl border bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 p-6 text-slate-100 shadow-lg md:p-8">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-200/90">Agentic Trend Orchestrator</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">Welcome back</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-200/90">Your personal workspace is ready. Choose a module below to continue.</p>
+        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Welcome back</h1>
+        <p className="mt-2 max-w-2xl text-sm text-slate-200/90">Your workspace is ready. Open a module below or use the menu on the left.</p>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
