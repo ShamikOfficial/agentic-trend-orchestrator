@@ -21,6 +21,8 @@ Set `NEXT_PUBLIC_API_BASE_URL` when needed. Default is:
 
 `http://127.0.0.1:8000/api/v1`
 
+Copy `frontend/.env.example` for local overrides. On Vercel, set the same variable per **Environment** (Production vs Preview) if staging and production APIs differ; see root `README.md` deploy section.
+
 ## Current Goal
 Ship and polish authenticated Team/Workflow/Chat modules while preparing ingest/trend/query screens.
 

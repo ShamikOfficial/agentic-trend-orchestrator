@@ -1,3 +1,5 @@
+import os
+import re
 from pathlib import Path
 from time import perf_counter
 
@@ -11,16 +13,38 @@ from backend.app import auth_state
 from backend.app.api.routes import chat, health, team, workflow
 
 
+def _cors_allow_origins() -> list[str]:
+    origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    extra = os.environ.get("CORS_ORIGINS", "").strip()
+    for part in extra.split(","):
+        o = part.strip()
+        if o and o not in origins:
+            origins.append(o)
+    return origins
+
+
+def _cors_allow_origin_regex() -> str | None:
+    raw = os.environ.get("CORS_ORIGIN_REGEX", "").strip()
+    if raw:
+        re.compile(raw)
+        return raw
+    if os.environ.get("CORS_ALLOW_VERCEL", "").lower() in ("1", "true", "yes"):
+        return r"https://.*\.vercel\.app$"
+    return None
+
+
 app = FastAPI(title="Web MVP API", version="0.1.0")
 _api_log_path = Path("logs/api_calls.log")
 _api_log_path.parent.mkdir(parents=True, exist_ok=True)
 
+_cors_regex = _cors_allow_origin_regex()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=_cors_allow_origins(),
+    allow_origin_regex=_cors_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
