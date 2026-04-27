@@ -77,11 +77,11 @@ export default function WorkflowItemDetailPage() {
   }
 
   if (!item && message.startsWith("Loading")) {
-    return <main className="mx-auto max-w-4xl p-8 text-sm text-muted-foreground">{message}</main>;
+    return <main className="w-full p-8 text-sm text-muted-foreground">{message}</main>;
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-8">
+    <main className="flex min-h-full w-full flex-col gap-6 px-4 py-8 md:px-10">
       <section>
         <h1 className="text-2xl font-semibold tracking-tight">Work Item Details</h1>
         <p className="text-sm text-muted-foreground">{itemId}</p>

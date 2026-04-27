@@ -4,16 +4,18 @@ import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "
 import { useRouter } from "next/navigation";
 import {
   CirclePlus,
-  Home,
+  FilePenLine,
+  ListTodo,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
-  LogOut,
-  MessageCircle,
+  QrCode,
   Search,
   SendHorizontal,
-  Users,
-  Workflow,
+  Sparkles,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   ChatApiError,
   createGroup,
@@ -84,6 +86,8 @@ export default function ChatPage() {
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
   const composerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const listSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const [infoPanelOpen, setInfoPanelOpen] = useState(true);
 
   useEffect(() => {
     const user = getAuthUser();
@@ -247,7 +251,7 @@ export default function ChatPage() {
 
   if (!token) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-7xl items-center justify-center px-4 py-16 text-muted-foreground">
+      <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
         Redirecting to sign in…
       </main>
     );
@@ -282,6 +286,12 @@ export default function ChatPage() {
       return candidate ? initials(candidate.display_name) : `G${idx + 1}`;
     });
   }, [activeGroup, chatMode, currentUserId, users]);
+
+  const extraMemberBadge = useMemo(() => {
+    if (chatMode !== "group" || !activeGroup) return 0;
+    const others = Math.max(0, activeGroup.member_count - (activeGroup.joined ? 1 : 0));
+    return Math.max(0, others - groupAvatarLabels.length);
+  }, [activeGroup, chatMode, groupAvatarLabels.length]);
 
   function formatTime(value: string) {
     const date = new Date(value);
@@ -326,14 +336,6 @@ export default function ChatPage() {
     }));
   }
 
-  function handleSignOut() {
-    clearAuthToken();
-    setToken("");
-    setCurrentUserId("");
-    window.dispatchEvent(new Event("auth-changed"));
-    router.replace(loginPathWithReason("signed_out"));
-  }
-
   function handlePickComposerFiles() {
     composerFileInputRef.current?.click();
   }
@@ -350,78 +352,16 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-[1400px] bg-[#f6f6f6] px-3 py-4 md:px-6">
-      <section className="grid min-h-[86vh] grid-cols-[56px_300px_1fr] overflow-hidden bg-transparent">
-        <aside className="flex flex-col items-center justify-between border-r border-black/5 bg-[#f4f4f4] py-4">
-          <div className="flex flex-col items-center gap-4">
-            <div className="group relative">
-              <button
-                className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white text-base text-[#222] transition hover:bg-black/5"
-                type="button"
-                onClick={() => router.push("/")}
-                aria-label="Home"
-              >
-                <Home className="h-5 w-5" />
-              </button>
-              <span className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                Home
-              </span>
-            </div>
-            <div className="group relative">
-              <button
-                className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white text-base text-[#222] transition hover:bg-black/5"
-                type="button"
-                onClick={() => router.push("/team")}
-                aria-label="Team"
-              >
-                <Users className="h-5 w-5" />
-              </button>
-              <span className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                Team
-              </span>
-            </div>
-            <div className="group relative">
-              <button
-                className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-[#e8eefc] text-base text-[#22335f]"
-                type="button"
-                aria-label="Chat"
-              >
-                <MessageCircle className="h-5 w-5" />
-              </button>
-              <span className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                Chat
-              </span>
-            </div>
-            <div className="group relative">
-              <button
-                className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white text-base text-[#222] transition hover:bg-black/5"
-                type="button"
-                onClick={() => router.push("/workflow")}
-                aria-label="Workflow"
-              >
-                <Workflow className="h-5 w-5" />
-              </button>
-              <span className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                Workflow
-              </span>
-            </div>
-          </div>
-          <div className="group relative">
-            <button
-              className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white text-base text-[#222] transition hover:bg-black/5"
-              type="button"
-              onClick={handleSignOut}
-              aria-label="Sign out"
-            >
-              <LogOut className="h-5 w-5" />
-            </button>
-            <span className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-              Sign out
-            </span>
-          </div>
-        </aside>
-
-        <aside className="border-r border-black/5 bg-[#f7f7f7] p-4">
+    <main className="relative flex h-full min-h-0 w-full flex-1 flex-col bg-[#f6f6f6] md:flex-row">
+      {infoPanelOpen ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-40 bg-black/25 backdrop-blur-[1px] md:hidden"
+          onClick={() => setInfoPanelOpen(false)}
+        />
+      ) : null}
+      <section className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col overflow-y-auto overflow-x-hidden border-r border-black/5 bg-[#f7f7f7] p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-xl font-semibold tracking-tight">Chats</h2>
             <button className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => void refreshGroups()} type="button">
@@ -430,6 +370,8 @@ export default function ChatPage() {
           </div>
 
           <input
+            ref={listSearchInputRef}
+            id="chat-list-search"
             className="mb-3 h-10 w-full rounded-xl border border-black/10 bg-white px-3 text-sm"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -563,7 +505,7 @@ export default function ChatPage() {
           ) : null}
         </aside>
 
-        <section className="flex flex-col bg-[#fdfdfd]">
+        <section className="flex min-h-0 flex-1 flex-col bg-[#fdfdfd]">
           <header className="flex items-center justify-between border-b border-black/5 px-4 py-3">
             <div className="flex items-center gap-3">
               {groupAvatarLabels.length > 0 ? (
@@ -583,7 +525,23 @@ export default function ChatPage() {
                 <p className="text-xs text-muted-foreground">{activeSubtitle}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white text-[#333] shadow-sm transition hover:bg-black/5 md:h-10 md:w-auto md:gap-2 md:px-3"
+                onClick={() => setInfoPanelOpen((open) => !open)}
+                aria-expanded={infoPanelOpen}
+                aria-label={infoPanelOpen ? "Hide chat details" : "Show chat details"}
+              >
+                {infoPanelOpen ? (
+                  <PanelRightClose className="h-5 w-5" />
+                ) : (
+                  <PanelRightOpen className="h-5 w-5" />
+                )}
+                <span className="hidden text-xs font-semibold md:inline">
+                  {infoPanelOpen ? "Hide" : "Details"}
+                </span>
+              </button>
               <button
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#96a9d6] bg-[#dfe8fb] px-4 text-sm font-semibold text-[#1f3566] shadow-sm transition hover:bg-[#d3e0fb]"
                 type="button"
@@ -759,6 +717,160 @@ export default function ChatPage() {
           </footer>
         </section>
       </section>
+
+      <aside
+        className={cn(
+          "flex min-h-0 flex-col border-l border-black/5 bg-white shadow-[ -6px_0_24px_rgba(0,0,0,0.04) ]",
+          "fixed inset-y-0 right-0 z-50 w-[min(100%,320px)] max-w-[320px] transition-transform duration-300 ease-out",
+          infoPanelOpen ? "translate-x-0" : "translate-x-full pointer-events-none",
+          "md:relative md:inset-auto md:z-0 md:h-auto md:max-w-none md:w-72 md:translate-x-0 md:shadow-none md:transition-none md:pointer-events-auto",
+          !infoPanelOpen && "md:hidden",
+        )}
+      >
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-3 flex items-center justify-center gap-1">
+              {chatMode === "group" && activeGroup && activeGroup.member_count > 0 ? (
+                <>
+                  <div className="flex -space-x-2">
+                    {groupAvatarLabels.length > 0 ? (
+                      groupAvatarLabels.map((label, idx) => (
+                        <span
+                          key={`rp-${label}-${idx}`}
+                          className="grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-[#ececec] text-[11px] font-semibold text-[#4a4a4a]"
+                        >
+                          {label}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-[#ececec] text-[11px] font-semibold text-[#4a4a4a]">
+                        {initials(activeGroup.name)}
+                      </span>
+                    )}
+                  </div>
+                  {extraMemberBadge > 0 ? (
+                    <span className="z-10 grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-[#ddd] text-[11px] font-semibold text-[#333]">
+                      +{extraMemberBadge}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="z-10 grid h-9 w-9 place-items-center rounded-full border-2 border-dashed border-black/20 bg-white text-lg font-light text-muted-foreground transition hover:border-black/30 hover:bg-black/[0.03]"
+                    onClick={() => setFlash("Invite members — coming soon.")}
+                    aria-label="Add members"
+                  >
+                    +
+                  </button>
+                </>
+              ) : chatMode === "dm" && activeUser ? (
+                <span className="grid h-14 w-14 place-items-center rounded-full border border-black/10 bg-[#ececec] text-sm font-semibold text-[#4a4a4a]">
+                  {initials(activeUser.display_name)}
+                </span>
+              ) : (
+                <span className="grid h-14 w-14 place-items-center rounded-full border border-dashed border-black/15 bg-[#fafafa] text-xs text-muted-foreground">
+                  —
+                </span>
+              )}
+            </div>
+            <h2 className="text-base font-semibold text-[#111]">{activeTitle}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {chatMode === "group" && activeGroup
+                ? activeGroup.description.trim() || "No description yet."
+                : chatMode === "dm" && activeUser
+                  ? `@${activeUser.username}`
+                  : "Select a chat"}
+            </p>
+            {chatMode === "group" && activeGroup?.name ? (
+              <p className="mt-1 text-[11px] text-muted-foreground/90">#{activeGroup.name.replace(/\s+/g, "")}</p>
+            ) : null}
+          </div>
+
+          <nav className="flex flex-col gap-0.5 border-t border-black/5 pt-4">
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left text-sm text-[#222] transition hover:bg-black/[0.04]"
+              onClick={() => {
+                listSearchInputRef.current?.focus();
+                setSearchOpen(true);
+                setFlash("Search the chat list on the left, or use Search above.");
+                if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+                  setInfoPanelOpen(false);
+                }
+              }}
+            >
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span>Search chat history</span>
+            </button>
+            {chatMode === "group" ? (
+              <>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left text-sm text-[#222] transition hover:bg-black/[0.04]"
+                  onClick={() => setFlash("Group QR code — coming soon.")}
+                >
+                  <QrCode className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>Group QR code</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left text-sm text-[#222] transition hover:bg-black/[0.04]"
+                  onClick={() => setFlash("Group notice — coming soon.")}
+                >
+                  <FilePenLine className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>Group notice</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left text-sm text-[#222] transition hover:bg-black/[0.04]"
+                onClick={() => setFlash("Shared media — coming soon.")}
+              >
+                <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span>Shared media</span>
+              </button>
+            )}
+          </nav>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Highlights</p>
+            <div className="rounded-xl border border-dashed border-black/10 bg-[#fafafa] px-3 py-6 text-center text-xs text-muted-foreground">
+              Pinned highlights and key moments will show here.
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">AI features</p>
+            <ul className="space-y-2">
+              <li className="flex items-start gap-2 rounded-xl border border-black/5 bg-[#fafafa] px-3 py-2.5 text-xs text-[#333]">
+                <ListTodo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span>
+                  <span className="font-medium">Auto task identify</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">Surface action items from this thread.</span>
+                </span>
+              </li>
+              <li className="flex items-start gap-2 rounded-xl border border-black/5 bg-[#fafafa] px-3 py-2.5 text-xs text-[#333]">
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span>
+                  <span className="font-medium">Smart prompts</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">Context-aware suggestions for replies.</span>
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-black/5 p-4">
+          <button
+            type="button"
+            className="w-full rounded-full bg-black py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-black/90 active:scale-[0.99]"
+            onClick={() => setFlash("Ask AI — coming soon. This will open the assistant for this chat.")}
+          >
+            Ask AI
+          </button>
+          <p className="mt-2 text-center text-[10px] text-muted-foreground">Live-in AI mode will connect here.</p>
+        </div>
+      </aside>
     </main>
   );
 }

@@ -294,7 +294,7 @@ export default function WorkflowPage() {
   }));
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
+    <main className="flex min-h-full w-full flex-col gap-6 px-4 py-8 md:px-10">
       <section>
         <h1 className="text-3xl font-semibold tracking-tight">Workflow Management</h1>
         <p className="text-muted-foreground">

@@ -65,9 +65,6 @@ export function LoginPanel({ bannerMessage, bannerIsError = true }: LoginPanelPr
   return (
     <section className="grid gap-6 lg:grid-cols-2">
       <article className="rounded-2xl border bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 p-7 text-slate-100 shadow-lg">
-        <p className="mb-3 inline-flex rounded-full border border-white/20 px-3 py-1 text-xs tracking-wide text-slate-200">
-          Agentic Trend Orchestrator
-        </p>
         <h1 className="text-3xl font-semibold leading-tight md:text-4xl">Sign in to your workspace</h1>
         <p className="mt-4 text-sm text-slate-200/90">
           Use one account for Team, Workflow, and Chat. After signing in you will return to the home dashboard.
