@@ -3,6 +3,10 @@ import re
 from pathlib import Path
 from time import perf_counter
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,9 +35,10 @@ def _cors_allow_origin_regex() -> str | None:
     if raw:
         re.compile(raw)
         return raw
-    if os.environ.get("CORS_ALLOW_VERCEL", "").lower() in ("1", "true", "yes"):
-        return r"https://.*\.vercel\.app$"
-    return None
+    flag = os.environ.get("CORS_ALLOW_VERCEL", "true").strip().lower()
+    if flag in ("0", "false", "no"):
+        return None
+    return r"https://.*\.vercel\.app$"
 
 
 app = FastAPI(title="Web MVP API", version="0.1.0")

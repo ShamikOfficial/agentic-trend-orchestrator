@@ -54,9 +54,7 @@ Then open `http://localhost:3000` in your browser.
 2. In [Vercel](https://vercel.com/new), import the repo and set **Root Directory** to `frontend`.
 3. Under **Environment Variables**, add `NEXT_PUBLIC_API_BASE_URL` with your public API base URL (must end with `/api/v1`). Scope it separately for **Production** and **Preview** if you use different APIs for staging vs production.
 4. Deploy the **production** branch (often `main`). Every pull request and non-production branch gets a **Preview** URL automatically.
-5. On the machine that runs the FastAPI backend, enable browser access from Vercel:
-   - Set `CORS_ALLOW_VERCEL=true`, or list exact origins in `CORS_ORIGINS`, or set `CORS_ORIGIN_REGEX` (see root `.env.example`).
-   - Without this, the browser blocks requests from `*.vercel.app` origins.
+5. On the machine that runs the FastAPI backend, CORS allows `https://*.vercel.app` by default (`CORS_ALLOW_VERCEL` defaults to on). Add domains to `CORS_ORIGINS` for custom hostnames, or set `CORS_ALLOW_VERCEL=false` to allow only `CORS_ORIGINS` + localhost (see root `.env.example`).
 
 See `frontend/.env.example` for frontend-only variables.
 
