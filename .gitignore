@@ -9,3 +9,6 @@ __pycache__/
 # Local environment secrets
 .env
 
+# Dev auth store (plaintext passwords — local MVP only)
+data/auth_store.json
+

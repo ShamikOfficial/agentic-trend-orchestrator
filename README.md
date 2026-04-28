@@ -59,6 +59,7 @@ Then open `http://localhost:3000` in your browser.
 See `frontend/.env.example` for frontend-only variables.
 
 ## Notes
+- Auth users are saved under `data/auth_store.json` (gitignored) so logins survive `uvicorn --reload`. Delete that file to reset accounts. Passwords are stored in plaintext for local MVP only.
 - Root `requirements.txt` is the single Python dependency source for backend services and tests.
 - Frontend dependencies are managed in `frontend/package.json`.
 - API base URL defaults to `http://127.0.0.1:8000/api/v1`.
