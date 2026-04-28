@@ -62,7 +62,12 @@ export async function uploadWorkflowAttachment(file: File) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (!baseUrl) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   const response = await fetch(`${baseUrl}/workflow/uploads`, {
     method: "POST",
     body: formData,
