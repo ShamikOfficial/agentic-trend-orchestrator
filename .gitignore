@@ -12,3 +12,6 @@ __pycache__/
 # Dev auth store (plaintext passwords — local MVP only)
 data/auth_store.json
 
+# Figma exports / handoff assets (local only)
+figma/
+

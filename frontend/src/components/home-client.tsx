@@ -25,7 +25,7 @@ export function HomeClient() {
 
   if (!token) {
     return (
-      <main className="flex min-h-screen w-full flex-col gap-4 px-4 py-8 md:px-10">
+      <main className="flex min-h-screen w-full items-center justify-center bg-[#f5f5f5] px-4 py-8">
         <LoginPanel bannerMessage={bannerMessage} bannerIsError={bannerIsError} />
       </main>
     );
