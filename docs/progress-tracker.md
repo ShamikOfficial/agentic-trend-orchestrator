@@ -88,6 +88,7 @@ Status values:
 - `docs/api-contract.md` maintained
 - `docs/api-coverage-matrix.md` maintained
 - `docs/progress-tracker.md` maintained
+- `docs/figma-ui-status.md` maintained
 
 ## Update Protocol
 When any feature changes:
@@ -102,3 +103,8 @@ When any feature changes:
 - 2026-04-20: Implemented standalone Team Assistant and Workflow core services.
 - 2026-04-21: Switched UI foundation to Next.js + Tailwind + shadcn/ui.
 - 2026-04-27: Added auth + chat APIs, protected middleware, and full Team/Workflow/Chat page wiring; updated docs to reflect implemented state.
+- 2026-04-27: Synced Figma screen inventory in `docs/figma-ui-status.md` and confirmed current available screen list.
+- 2026-04-27: Implemented basic ScriptHome/Brief/Editor/Variations/Storyboard/Save routes under `/app/*`, wired available backend endpoints, and added development placeholders for missing features.
+- 2026-04-27: Implemented basic `ProjectProgress` at `/app/progress` using workflow items/logs with simple placeholder logic for missing deep-link integrations.
+- 2026-04-27: Rewired app flow to mirror Figma route map, aligned sidebar order (Chat, Script Generation, Video Upload & Report, Progress Tracker, My Tasks), and added missing `/app/*` bridge screens (`chat`, `tasks`, `upload`, `report`, `chat-brief`, `chat-tasks`, `chat-review`, `report-chat`).
+- 2026-04-27: Wired `/app/upload` to FastAPI trend analytics ingest via new `/api/v1/trend/upload` endpoint; uploaded videos now flow into trend analytics processing for downstream summary/trend use.

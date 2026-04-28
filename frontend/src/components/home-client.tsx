@@ -38,6 +38,12 @@ export function HomeClient() {
     cta: string;
   }> = [
     {
+      title: "Script Studio",
+      href: "/app",
+      accent: "from-amber-500/20 to-orange-500/20",
+      cta: "Open scripts",
+    },
+    {
       title: "Team Assistant",
       href: "/team",
       accent: "from-cyan-500/20 to-blue-500/20",
@@ -64,7 +70,7 @@ export function HomeClient() {
         <p className="mt-2 max-w-2xl text-sm text-slate-200/90">Your workspace is ready. Open a module below or use the menu on the left.</p>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {modules.map((module) => (
           <Link
             key={module.title}

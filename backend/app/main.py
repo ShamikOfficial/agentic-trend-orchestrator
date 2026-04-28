@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app import auth_state
-from backend.app.api.routes import chat, health, team, workflow
+from backend.app.api.routes import chat, health, team, trend_analytics, workflow
 
 
 def _cors_allow_origins() -> list[str]:
@@ -59,6 +59,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(team.router, prefix="/api/v1", tags=["team"])
 app.include_router(workflow.router, prefix="/api/v1", tags=["workflow"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+app.include_router(trend_analytics.router, prefix="/api/v1", tags=["trend-analytics"])
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
