@@ -2,12 +2,23 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/__pycache__/
+**/*.pyc
 
 # Jupyter notebooks
 *.ipynb
 
 # Local environment secrets
 .env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local virtual environments
+.venv2/
 
 # Dev auth store (plaintext passwords — local MVP only)
 data/auth_store.json
@@ -15,3 +26,14 @@ data/auth_store.json
 # Figma exports / handoff assets (local only)
 figma/
 
+# Trend analytics downloaded/local video artifacts
+videos/
+backend/trend_analytics/videos/
+uploads/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.wav
+*.flac

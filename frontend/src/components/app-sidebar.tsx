@@ -2,15 +2,49 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, LogOut, MessageCircle, Users, Workflow } from "lucide-react";
+import {
+  BarChart2,
+  CheckSquare,
+  FileText,
+  LogOut,
+  MessageCircle,
+  Settings,
+  Upload,
+} from "lucide-react";
 import { clearAuthToken } from "@/lib/auth-store";
 import { loginPathWithReason } from "@/lib/auth-redirect";
 
 const nav = [
-  { href: "/", label: "Home", Icon: Home },
-  { href: "/team", label: "Team", Icon: Users },
-  { href: "/workflow", label: "Workflow", Icon: Workflow },
-  { href: "/chat", label: "Chat", Icon: MessageCircle },
+  {
+    href: "/app/chat",
+    label: "Chat",
+    Icon: MessageCircle,
+    activeFor: ["/app/chat", "/app/chat-brief", "/app/chat-tasks", "/app/chat-review", "/app/report-chat", "/chat"],
+  },
+  {
+    href: "/app",
+    label: "Script Generation",
+    Icon: FileText,
+    activeFor: ["/app", "/app/brief", "/app/editor", "/app/variations", "/app/storyboard", "/app/save"],
+  },
+  {
+    href: "/app/upload",
+    label: "Video Upload & Report",
+    Icon: Upload,
+    activeFor: ["/app/upload", "/app/report"],
+  },
+  {
+    href: "/app/progress",
+    label: "Progress Tracker",
+    Icon: BarChart2,
+    activeFor: ["/app/progress"],
+  },
+  {
+    href: "/app/tasks",
+    label: "My Tasks",
+    Icon: CheckSquare,
+    activeFor: ["/app/tasks", "/workflow"],
+  },
 ] as const;
 
 export function AppSidebar() {
@@ -24,46 +58,49 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="flex h-screen w-[56px] shrink-0 flex-col items-center justify-between border-r border-black/5 bg-[#f4f4f4] py-4 md:w-[64px]">
-      <nav className="flex flex-col items-center gap-3">
-        {nav.map(({ href, label, Icon }) => {
-          const active =
-            href === "/"
-              ? pathname === "/"
-              : pathname === href || pathname.startsWith(`${href}/`);
+    <aside className="sticky top-0 flex h-screen w-[72px] shrink-0 flex-col items-center border-r border-[#e5e7eb] bg-white py-5">
+      <div className="mb-7 flex h-9 w-9 items-center justify-center rounded-xl bg-[#101828]">
+        <span className="text-[15px] font-extrabold tracking-tight text-white">TP</span>
+      </div>
+
+      <nav className="flex flex-1 flex-col items-center gap-2">
+        {nav.map(({ href, label, Icon, activeFor }) => {
+          const isActive = activeFor.some((path) => pathname === path || pathname.startsWith(`${path}/`));
           return (
-            <div key={href} className="group relative">
-              <Link
-                href={href}
-                className={`grid h-11 w-11 place-items-center rounded-xl border text-base transition hover:bg-black/5 md:h-12 md:w-12 ${
-                  active
-                    ? "border-black/10 bg-[#e8eefc] text-[#22335f]"
-                    : "border-black/10 bg-white text-[#222]"
-                }`}
-                aria-current={active ? "page" : undefined}
-                aria-label={label}
-              >
-                <Icon className="h-5 w-5 md:h-[22px] md:w-[22px]" />
-              </Link>
-              <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                {label}
-              </span>
-            </div>
+            <Link
+              key={href}
+              href={href}
+              title={label}
+              className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
+                isActive
+                  ? "bg-[#101828] text-white shadow-sm"
+                  : "text-[#9a9ea6] hover:bg-[#f3f4f6] hover:text-[#101828]"
+              }`}
+              aria-current={isActive ? "page" : undefined}
+            >
+              <Icon className="h-5 w-5" />
+            </Link>
           );
         })}
       </nav>
-      <div className="group relative">
+
+      <div className="flex flex-col items-center gap-3">
         <button
-          className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white text-[#222] transition hover:bg-black/5 md:h-12 md:w-12"
+          title="Settings"
+          className="flex h-11 w-11 items-center justify-center rounded-xl text-[#9a9ea6] transition-colors hover:bg-[#f3f4f6] hover:text-[#101828]"
+          type="button"
+        >
+          <Settings className="h-5 w-5" />
+        </button>
+        <button
+          className="flex h-11 w-11 items-center justify-center rounded-xl text-[#9a9ea6] transition-colors hover:bg-[#f3f4f6] hover:text-[#101828]"
           type="button"
           onClick={handleLogout}
           aria-label="Sign out"
+          title="Log out"
         >
-          <LogOut className="h-5 w-5 md:h-[22px] md:w-[22px]" />
+          <LogOut className="h-5 w-5" />
         </button>
-        <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md bg-[#111] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-          Sign out
-        </span>
       </div>
     </aside>
   );
