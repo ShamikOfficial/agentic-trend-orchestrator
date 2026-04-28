@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.app import auth_state
+from backend.app.llm import LlmError
+from backend.app.services.chat import assistant as chat_assistant
 from backend.app.services.team import service as id_service
 
 router = APIRouter()
@@ -32,6 +35,13 @@ class CreateGroupRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+
+
+class AskChatAiRequest(BaseModel):
+    chat_type: Literal["dm", "group"]
+    target_id: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=8000)
+
 
 class GroupRequestActionRequest(BaseModel):
     requester_user_id: str
@@ -237,3 +247,33 @@ def list_group_messages(group_id: str, x_auth_token: str | None = Header(default
     if user_id not in group["members"]:
         raise HTTPException(status_code=403, detail="Join group before viewing messages.")
     return {"items": group["messages"]}
+
+
+def _messages_for_ask_ai(user_id: str, payload: AskChatAiRequest) -> list[dict]:
+    if payload.chat_type == "dm":
+        try:
+            auth_state.safe_user(payload.target_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Target user not found.") from None
+        key = tuple(sorted([user_id, payload.target_id]))
+        raw = _dm_messages.get(key, [])
+    else:
+        group = _groups.get(payload.target_id)
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found.")
+        if user_id not in group["members"]:
+            raise HTTPException(status_code=403, detail="Join group before using Ask AI.")
+        raw = group.get("messages", [])
+    return raw[-200:] if len(raw) > 200 else list(raw)
+
+
+@router.post("/chat/ask-ai")
+def ask_chat_ai(payload: AskChatAiRequest, x_auth_token: str | None = Header(default=None)) -> dict:
+    user_id = _require_user(x_auth_token)
+    rows = _messages_for_ask_ai(user_id, payload)
+    transcript = chat_assistant.format_transcript(rows)
+    try:
+        answer = chat_assistant.answer_from_transcript(transcript, payload.question)
+    except LlmError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"answer": answer.strip()}

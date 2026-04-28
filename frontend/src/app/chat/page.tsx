@@ -18,6 +18,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   ChatApiError,
+  askChatAi,
   createGroup,
   joinGroup,
   listGroupJoinRequests,
@@ -59,6 +60,19 @@ type ChatMessage = {
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "🙏"];
 
+/** `@chat` anywhere in the message triggers Ask AI; question is the text with @chat tokens removed. */
+function parseChatAiIntent(text: string): { isAskAi: boolean; question: string | null } {
+  const trimmed = text.trim();
+  if (!/@chat\b/i.test(trimmed)) {
+    return { isAskAi: false, question: null };
+  }
+  const withoutTag = trimmed
+    .replace(/@chat\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { isAskAi: true, question: withoutTag.length > 0 ? withoutTag : null };
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const [token, setToken] = useState(() => getAuthToken());
@@ -86,13 +100,20 @@ export default function ChatPage() {
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
   const composerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerTextRef = useRef<HTMLInputElement | null>(null);
   const listSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [infoPanelOpen, setInfoPanelOpen] = useState(true);
+  const [askAiBusy, setAskAiBusy] = useState(false);
+  const [aiReply, setAiReply] = useState<{ content: string } | null>(null);
 
   useEffect(() => {
     const user = getAuthUser();
     setCurrentUserId(user?.user_id ?? "");
   }, []);
+
+  useEffect(() => {
+    setAiReply(null);
+  }, [activeTargetId, chatMode]);
 
   useEffect(() => {
     if (!getAuthToken()) {
@@ -175,12 +196,44 @@ export default function ChatPage() {
 
   async function handleSend() {
     if (!activeTargetId || !composer.trim()) return;
+    const body = composer.trim();
+    const { isAskAi, question } = parseChatAiIntent(body);
+    if (isAskAi && question === null) {
+      setFlash("Add your question after @chat (or use Ask AI below).");
+      return;
+    }
+    if (isAskAi && question !== null) {
+      setAskAiBusy(true);
+      setFlash("");
+      try {
+        const { answer } = await askChatAi(token, {
+          chat_type: chatMode === "dm" ? "dm" : "group",
+          target_id: activeTargetId,
+          question,
+        });
+        setAiReply({ content: answer });
+        if (chatMode === "dm") {
+          await sendDirectMessage(token, activeTargetId, body);
+          await loadMessages(activeTargetId, "dm");
+        } else {
+          await sendGroupMessage(token, activeTargetId, body);
+          await loadMessages(activeTargetId, "group");
+        }
+        setComposer("");
+        setComposerFiles([]);
+      } catch (error) {
+        handleApiError(error);
+      } finally {
+        setAskAiBusy(false);
+      }
+      return;
+    }
     try {
       if (chatMode === "dm") {
-        await sendDirectMessage(token, activeTargetId, composer.trim());
+        await sendDirectMessage(token, activeTargetId, body);
         await loadMessages(activeTargetId, "dm");
       } else {
-        await sendGroupMessage(token, activeTargetId, composer.trim());
+        await sendGroupMessage(token, activeTargetId, body);
         await loadMessages(activeTargetId, "group");
       }
       setComposer("");
@@ -659,6 +712,33 @@ export default function ChatPage() {
 
           <footer className="border-t border-black/5 bg-white px-4 py-3">
             {flash ? <p className="mb-2 text-xs text-muted-foreground">{flash}</p> : null}
+            {askAiBusy ? (
+              <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                Asking AI using this chat as context…
+              </p>
+            ) : null}
+            {aiReply ? (
+              <div className="mb-3 rounded-xl border border-indigo-200/90 bg-indigo-50 px-4 py-3 text-indigo-950 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
+                    <Sparkles className="h-4 w-4 shrink-0" />
+                    Chat AI
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 text-[11px] text-indigo-800 underline underline-offset-2 hover:text-indigo-950"
+                    onClick={() => setAiReply(null)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{aiReply.content}</p>
+                <p className="mt-2 text-[10px] text-indigo-900/75">
+                  Uses only this chat&apos;s history. Say so if nothing relevant appears in the messages.
+                </p>
+              </div>
+            ) : null}
             {composerFiles.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-2">
                 {composerFiles.map((file, index) => (
@@ -693,6 +773,7 @@ export default function ChatPage() {
                 onChange={handleComposerFilesChange}
               />
               <input
+                ref={composerTextRef}
                 className="h-9 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground/80"
                 value={composer}
                 onChange={(e) => setComposer(e.target.value)}
@@ -702,13 +783,13 @@ export default function ChatPage() {
                     void handleSend();
                   }
                 }}
-                placeholder="Enter your message"
+                placeholder='Message… type @chat and your question, or use "Ask AI"'
               />
               <button
                 className="grid h-8 w-8 place-items-center rounded-full bg-[#d9d9d9] text-xs text-black transition hover:bg-[#cdcdcd] disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
                 onClick={() => void handleSend()}
-                disabled={!activeTargetId || !composer.trim()}
+                disabled={!activeTargetId || !composer.trim() || askAiBusy}
                 aria-label="Send message"
               >
                 <SendHorizontal className="h-4 w-4" />
@@ -852,8 +933,11 @@ export default function ChatPage() {
               <li className="flex items-start gap-2 rounded-xl border border-black/5 bg-[#fafafa] px-3 py-2.5 text-xs text-[#333]">
                 <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 <span>
-                  <span className="font-medium">Smart prompts</span>
-                  <span className="mt-0.5 block text-[11px] text-muted-foreground">Context-aware suggestions for replies.</span>
+                  <span className="font-medium">Ask AI (@chat)</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    Answers from this chat only. Type <code className="rounded bg-black/5 px-1">@chat</code> and your
+                    question, or use Ask AI below.
+                  </span>
                 </span>
               </li>
             </ul>
@@ -863,12 +947,22 @@ export default function ChatPage() {
         <div className="shrink-0 border-t border-black/5 p-4">
           <button
             type="button"
-            className="w-full rounded-full bg-black py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-black/90 active:scale-[0.99]"
-            onClick={() => setFlash("Ask AI — coming soon. This will open the assistant for this chat.")}
+            className="w-full rounded-full bg-black py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-black/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!activeTargetId || askAiBusy}
+            onClick={() => {
+              setComposer((c) => (c.trim() ? `${c.trim()} ` : "") + "@chat ");
+              setFlash("");
+              composerTextRef.current?.focus();
+              if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+                setInfoPanelOpen(false);
+              }
+            }}
           >
             Ask AI
           </button>
-          <p className="mt-2 text-center text-[10px] text-muted-foreground">Live-in AI mode will connect here.</p>
+          <p className="mt-2 text-center text-[10px] text-muted-foreground">
+            Inserts <code className="rounded bg-black/5 px-1">@chat</code> — add your question, then send.
+          </p>
         </div>
       </aside>
     </main>

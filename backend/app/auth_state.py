@@ -1,11 +1,39 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from backend.app.services.team import service as id_service
 
 _users: dict[str, dict] = {}
 _sessions: dict[str, str] = {}
+
+# Persists across uvicorn --reload (in-memory alone loses users on restart → login 401).
+_AUTH_STORE = Path(__file__).resolve().parents[2] / "data" / "auth_store.json"
+
+
+def _persist() -> None:
+    _AUTH_STORE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"users": _users, "sessions": _sessions}
+    _AUTH_STORE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _load() -> None:
+    global _users, _sessions
+    if not _AUTH_STORE.is_file():
+        return
+    try:
+        raw = json.loads(_AUTH_STORE.read_text(encoding="utf-8"))
+        if isinstance(raw.get("users"), dict):
+            _users = raw["users"]
+        if isinstance(raw.get("sessions"), dict):
+            _sessions = {k: str(v) for k, v in raw["sessions"].items()}
+    except (json.JSONDecodeError, OSError, TypeError, KeyError):
+        pass
+
+
+_load()
 
 
 def now_iso() -> str:
@@ -25,6 +53,7 @@ def create_user(username: str, password: str, display_name: str | None = None) -
         "created_at": now_iso(),
     }
     _users[user_id] = user
+    _persist()
     return user
 
 
@@ -42,6 +71,7 @@ def login_user(username: str, password: str) -> tuple[str, dict] | None:
         return None
     token = id_service._make_id("tok")
     _sessions[token] = match["user_id"]
+    _persist()
     return token, match
 
 

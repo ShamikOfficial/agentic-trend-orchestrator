@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
@@ -32,15 +33,19 @@ def process_input_unified(
         f"content_chars={len(content)} owner_candidates={len(owners)}"
     )
     try:
-        raw = generate_text(prompt, system_prompt=TEAM_UNIFIED_PROCESS_PROMPT.system)
+        raw = generate_text(
+            prompt,
+            system_prompt=TEAM_UNIFIED_PROCESS_PROMPT.system,
+            response_mime_json=True,
+        )
         print(f"[team-debug] llm_raw_preview={raw[:500]!r}")
         data = _extract_json(raw)
         print(
             "[team-debug] llm_json_parsed "
             f"category={data.get('category')} tasks_count={len(data.get('tasks', [])) if isinstance(data.get('tasks'), list) else 0}"
         )
-    except LlmError:
-        print("[team-debug] llm_error encountered; using fallback payload")
+    except LlmError as exc:
+        print(f"[team-debug] llm_error encountered ({exc}); using fallback payload")
         data = _fallback_payload(content)
     except Exception as exc:
         print(f"[team-debug] parse_error={exc}; using fallback payload")
@@ -150,14 +155,28 @@ def run_deadline_reminders(tasks: list[Task], window_hours: int = 24) -> list[Re
 
 def _extract_json(raw: str) -> dict:
     content = raw.strip()
-    if content.startswith("```"):
-        content = content.strip("`")
-        content = content.replace("json", "", 1).strip()
-    start = content.find("{")
-    end = content.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("No JSON object found in LLM output.")
-    return json.loads(content[start : end + 1])
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", content, re.IGNORECASE)
+    if fence:
+        content = fence.group(1).strip()
+    # Whole response is often valid JSON when using responseMimeType application/json.
+    if content.startswith("{"):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(content):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(content, i)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            continue
+    raise ValueError("No JSON object found in LLM output.")
 
 
 def _parse_due_date(raw_due: str, default_due_days: int) -> date:
@@ -189,10 +208,14 @@ def _clean_category(raw: str) -> str:
 
 
 def _fallback_payload(content: str) -> dict:
+    excerpt = content.strip()[:400] or "No content provided."
     return {
         "category": "Notes",
         "category_result": "unknown",
-        "summary": content.strip()[:400] or "No content provided.",
+        "summary": (
+            "Automated summary and tasks were unavailable (LLM error or parse failure). "
+            f"Pasted excerpt:\n{excerpt}"
+        ),
         "action_items_preview": [],
         "tasks": [],
     }

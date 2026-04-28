@@ -148,3 +148,14 @@ export async function listGroupMessages(token: string, groupId: string) {
     headers: authHeaders(token),
   });
 }
+
+export async function askChatAi(
+  token: string,
+  payload: { chat_type: "dm" | "group"; target_id: string; question: string },
+): Promise<{ answer: string }> {
+  return requestJson(`${API_BASE_URL}/chat/ask-ai`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+}
