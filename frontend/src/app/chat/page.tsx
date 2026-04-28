@@ -3,16 +3,25 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ArrowUpRight,
+  ChevronRight,
   CirclePlus,
   FilePenLine,
+  FolderOpen,
   ListTodo,
+  Mic,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
+  Phone,
   QrCode,
+  RotateCcw,
   Search,
   SendHorizontal,
+  Smile,
   Sparkles,
+  Users,
+  Video,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -59,6 +68,15 @@ type ChatMessage = {
 };
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "🙏"];
+const AI_ACTIONS = [
+  "Summarize discussion",
+  "Extract script brief",
+  "Extract tasks",
+  "Assign tasks",
+  "Generate script",
+  "Update project progress",
+  "Send video report",
+] as const;
 
 /** `@chat` anywhere in the message triggers Ask AI; question is the text with @chat tokens removed. */
 function parseChatAiIntent(text: string): { isAskAi: boolean; question: string | null } {
@@ -105,6 +123,7 @@ export default function ChatPage() {
   const [infoPanelOpen, setInfoPanelOpen] = useState(true);
   const [askAiBusy, setAskAiBusy] = useState(false);
   const [aiReply, setAiReply] = useState<{ content: string } | null>(null);
+  const [showAIActions, setShowAIActions] = useState(false);
 
   useEffect(() => {
     const user = getAuthUser();
@@ -302,6 +321,24 @@ export default function ChatPage() {
     }
   }
 
+  function handleAiAction(label: string) {
+    setShowAIActions(false);
+    const normalized = label.toLowerCase();
+    if (normalized.includes("summarize")) {
+      setComposer((c) => (c.trim() ? `${c.trim()} ` : "") + "@chat summarize this conversation with key decisions and blockers");
+      setFlash("Drafted @chat summary prompt. Press Enter to run.");
+      composerTextRef.current?.focus();
+      return;
+    }
+    if (normalized.includes("extract tasks")) {
+      setComposer((c) => (c.trim() ? `${c.trim()} ` : "") + "@chat extract actionable tasks with owner suggestions and due dates");
+      setFlash("Drafted @chat task extraction prompt. Press Enter to run.");
+      composerTextRef.current?.focus();
+      return;
+    }
+    setFlash(`${label} is UI-only for now (backend workflow route not available).`);
+  }
+
   if (!token) {
     return (
       <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
@@ -405,7 +442,7 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="relative flex h-full min-h-0 w-full flex-1 flex-col bg-[#f6f6f6] md:flex-row">
+    <main className="relative flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[#f6f6f6] md:flex-row">
       {infoPanelOpen ? (
         <div
           role="presentation"
@@ -413,7 +450,7 @@ export default function ChatPage() {
           onClick={() => setInfoPanelOpen(false)}
         />
       ) : null}
-      <section className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
+      <section className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col overflow-y-auto overflow-x-hidden border-r border-black/5 bg-[#f7f7f7] p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-xl font-semibold tracking-tight">Chats</h2>
@@ -559,7 +596,22 @@ export default function ChatPage() {
         </aside>
 
         <section className="flex min-h-0 flex-1 flex-col bg-[#fdfdfd]">
-          <header className="flex items-center justify-between border-b border-black/5 px-4 py-3">
+          <header className="border-b border-black/5 px-4 py-3">
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[#9a9ea6]">
+              <FolderOpen className="h-3.5 w-3.5" />
+              <span>Foodie Project</span>
+              <ChevronRight className="h-3.5 w-3.5" />
+              <span className="font-semibold text-[#101828]">{activeTitle}</span>
+              <div className="ml-auto flex items-center gap-2">
+                <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[10px] font-semibold text-[#16a34a]">
+                  68% complete
+                </span>
+                <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[10px] font-semibold text-[#d97706]">
+                  {messages.length} msgs
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {groupAvatarLabels.length > 0 ? (
                 <div className="flex -space-x-2">
@@ -579,6 +631,14 @@ export default function ChatPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-black/10 bg-white px-3 text-sm font-semibold text-[#333] shadow-sm transition hover:bg-black/5"
+                onClick={() => setFlash("Call controls are UI-only for now.")}
+              >
+                <Phone className="h-4 w-4" />
+                <Video className="h-4 w-4" />
+              </button>
               <button
                 type="button"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white text-[#333] shadow-sm transition hover:bg-black/5 md:h-10 md:w-auto md:gap-2 md:px-3"
@@ -613,6 +673,7 @@ export default function ChatPage() {
                 <CirclePlus className="h-4 w-4" />
                 <span>Add Group</span>
               </button>
+            </div>
             </div>
           </header>
 
@@ -755,7 +816,7 @@ export default function ChatPage() {
                 ))}
               </div>
             ) : null}
-            <div className="flex items-center gap-2 rounded-xl border border-black/10 bg-[#fafafa] px-2 py-2">
+            <div className="relative flex items-center gap-2 rounded-xl border border-black/10 bg-[#fafafa] px-2 py-2">
               <button
                 className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-black/5"
                 type="button"
@@ -764,6 +825,29 @@ export default function ChatPage() {
               >
                 <Paperclip className="h-4 w-4" />
               </button>
+              <button
+                className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-black/5"
+                type="button"
+                onClick={() => setShowAIActions((open) => !open)}
+                aria-label="AI actions"
+              >
+                <Sparkles className="h-4 w-4" />
+              </button>
+              {showAIActions ? (
+                <div className="absolute bottom-12 left-11 z-10 w-64 rounded-xl border border-black/10 bg-white p-2 shadow-lg">
+                  {AI_ACTIONS.map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[#222] transition hover:bg-black/5"
+                      onClick={() => handleAiAction(action)}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-[#9810fa]" />
+                      <span>{action}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <input
                 ref={composerFileInputRef}
                 type="file"
@@ -786,6 +870,22 @@ export default function ChatPage() {
                 placeholder='Message… type @chat and your question, or use "Ask AI"'
               />
               <button
+                type="button"
+                className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-black/5"
+                onClick={() => setFlash("Voice input is UI-only for now.")}
+                aria-label="Voice input"
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-black/5"
+                onClick={() => setFlash("Emoji picker is UI-only for now.")}
+                aria-label="Emoji picker"
+              >
+                <Smile className="h-4 w-4" />
+              </button>
+              <button
                 className="grid h-8 w-8 place-items-center rounded-full bg-[#d9d9d9] text-xs text-black transition hover:bg-[#cdcdcd] disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
                 onClick={() => void handleSend()}
@@ -804,7 +904,7 @@ export default function ChatPage() {
           "flex min-h-0 flex-col border-l border-black/5 bg-white shadow-[ -6px_0_24px_rgba(0,0,0,0.04) ]",
           "fixed inset-y-0 right-0 z-50 w-[min(100%,320px)] max-w-[320px] transition-transform duration-300 ease-out",
           infoPanelOpen ? "translate-x-0" : "translate-x-full pointer-events-none",
-          "md:relative md:inset-auto md:z-0 md:h-auto md:max-w-none md:w-72 md:translate-x-0 md:shadow-none md:transition-none md:pointer-events-auto",
+          "md:relative md:inset-auto md:z-0 md:h-auto md:max-w-none md:w-[320px] md:translate-x-0 md:shadow-none md:transition-none md:pointer-events-auto",
           !infoPanelOpen && "md:hidden",
         )}
       >
@@ -914,6 +1014,24 @@ export default function ChatPage() {
           </nav>
 
           <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Project Status</p>
+            <div className="rounded-xl bg-[#f9fafb] p-3">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-[#101828]">68%</span>
+                <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[10px] font-semibold text-[#16a34a]">Editing phase</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#e5e7eb]">
+                <div className="h-full w-[68%] rounded-full bg-[#9810fa]" />
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-[13px] font-bold text-[#101828]">{messages.length}</p><p className="text-[10px] text-[#9a9ea6]">Messages</p></div>
+                <div><p className="text-[13px] font-bold text-[#101828]">{groups.length}</p><p className="text-[10px] text-[#9a9ea6]">Groups</p></div>
+                <div><p className="text-[13px] font-bold text-[#101828]">{users.length}</p><p className="text-[10px] text-[#9a9ea6]">Peers</p></div>
+              </div>
+            </div>
+          </div>
+
+          <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Highlights</p>
             <div className="rounded-xl border border-dashed border-black/10 bg-[#fafafa] px-3 py-6 text-center text-xs text-muted-foreground">
               Pinned highlights and key moments will show here.
@@ -947,6 +1065,14 @@ export default function ChatPage() {
         <div className="shrink-0 border-t border-black/5 p-4">
           <button
             type="button"
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-full border border-[#e5e7eb] py-3 text-sm font-semibold text-[#364153] shadow-sm transition hover:bg-[#f3f4f6]"
+            onClick={() => setFlash("Sync latest chat is UI-only for now.")}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Sync Latest Chat
+          </button>
+          <button
+            type="button"
             className="w-full rounded-full bg-black py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-black/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!activeTargetId || askAiBusy}
             onClick={() => {
@@ -963,6 +1089,20 @@ export default function ChatPage() {
           <p className="mt-2 text-center text-[10px] text-muted-foreground">
             Inserts <code className="rounded bg-black/5 px-1">@chat</code> — add your question, then send.
           </p>
+          <div className="mt-3 flex items-center justify-center gap-4 border-t border-[#f3f4f6] pt-3">
+            <button type="button" className="flex items-center gap-1 text-[11px] text-[#6a7282] hover:text-[#101828]" onClick={() => setFlash("Members panel is shown on the right.")}>
+              <Users className="h-3.5 w-3.5" />
+              Members
+            </button>
+            <button type="button" className="flex items-center gap-1 text-[11px] text-[#6a7282] hover:text-[#101828]" onClick={() => setFlash("Shared media is UI-only for now.")}>
+              <Paperclip className="h-3.5 w-3.5" />
+              Files
+            </button>
+            <button type="button" className="flex items-center gap-1 text-[11px] text-[#6a7282] hover:text-[#101828]" onClick={() => setFlash("AI memory is UI-only for now.")}>
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              AI Memory
+            </button>
+          </div>
         </div>
       </aside>
     </main>

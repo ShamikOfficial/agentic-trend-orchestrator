@@ -1,760 +1,553 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { buttonVariants } from "@/components/ui/button";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  BarChart2,
+  Calendar,
+  CheckSquare,
+  Clock,
+  ExternalLink,
+  MessageSquare,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import {
   createWorkflowItem,
-  deleteWorkflowItem,
   listWorkflowActivityLogs,
   listWorkflowItems,
-  uploadWorkflowAttachment,
-  updateWorkflowItem,
   updateWorkflowStage,
 } from "@/lib/workflow-api";
 import type { WorkflowActivityLog, WorkflowItem, WorkflowStage } from "@/types/api";
 
-const stages: WorkflowStage[] = ["Idea", "Brief", "Production", "Review", "Publish"];
-const stageTheme: Record<
-  WorkflowStage,
-  {
-    column: string;
-    badge: string;
-    select: string;
-    accent: string;
-  }
-> = {
-  Idea: {
-    column: "border-sky-200 bg-sky-50/70",
-    badge: "bg-sky-100 text-sky-700 border-sky-200",
-    select: "border-sky-300 bg-sky-100/80 text-sky-800",
-    accent: "border-sky-400",
-  },
-  Brief: {
-    column: "border-violet-200 bg-violet-50/70",
-    badge: "bg-violet-100 text-violet-700 border-violet-200",
-    select: "border-violet-300 bg-violet-100/80 text-violet-800",
-    accent: "border-violet-400",
-  },
-  Production: {
-    column: "border-amber-200 bg-amber-50/80",
-    badge: "bg-amber-100 text-amber-800 border-amber-200",
-    select: "border-amber-300 bg-amber-100/80 text-amber-900",
-    accent: "border-amber-500",
-  },
-  Review: {
-    column: "border-fuchsia-200 bg-fuchsia-50/80",
-    badge: "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200",
-    select: "border-fuchsia-300 bg-fuchsia-100/80 text-fuchsia-900",
-    accent: "border-fuchsia-500",
-  },
-  Publish: {
-    column: "border-emerald-200 bg-emerald-50/80",
-    badge: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    select: "border-emerald-300 bg-emerald-100/80 text-emerald-900",
-    accent: "border-emerald-500",
-  },
+type UiColumn = "To Do" | "In Progress" | "In Review" | "Done";
+
+const COLUMNS: UiColumn[] = ["To Do", "In Progress", "In Review", "Done"];
+const STAGE_OPTIONS: WorkflowStage[] = ["Idea", "Brief", "Production", "Review", "Publish"];
+
+const PRIORITY_COLORS: Record<string, string> = {
+  High: "bg-[#fee2e2] text-[#dc2626]",
+  Medium: "bg-[#fff7ed] text-[#f54900]",
+  Low: "bg-[#f3f4f6] text-[#6a7282]",
 };
 
-export default function WorkflowPage() {
-  const [activeTab, setActiveTab] = useState<"create" | "dashboard" | "logs">("create");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [owner, setOwner] = useState("");
-  const [project, setProject] = useState("General");
-  const [linkedTrend, setLinkedTrend] = useState("");
-  const [stage, setStage] = useState<WorkflowStage>("Idea");
-  const [dueDate, setDueDate] = useState("");
-  const [commentsInput, setCommentsInput] = useState("");
-  const [linksInput, setLinksInput] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [items, setItems] = useState<WorkflowItem[]>([]);
-  const [activityLogs, setActivityLogs] = useState<WorkflowActivityLog[]>([]);
-  const [editingItemId, setEditingItemId] = useState<string>("");
-  const [editTitle, setEditTitle] = useState("");
-  const [editOwner, setEditOwner] = useState("");
-  const [editProject, setEditProject] = useState("General");
-  const [editDescription, setEditDescription] = useState("");
-  const [editLinkedTrend, setEditLinkedTrend] = useState("");
-  const [editStage, setEditStage] = useState<WorkflowStage>("Idea");
-  const [editDueDate, setEditDueDate] = useState("");
-  const [editCommentsInput, setEditCommentsInput] = useState("");
-  const [editLinksInput, setEditLinksInput] = useState("");
-  const [editAttachments, setEditAttachments] = useState<string[]>([]);
-  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
-  const [dropStage, setDropStage] = useState<WorkflowStage | null>(null);
-  const [flashMessage, setFlashMessage] = useState<string>("");
-  const [isBusy, setIsBusy] = useState(false);
+const SOURCE_COLORS: Record<string, string> = {
+  Chat: "bg-[#e0f2fe] text-[#0284c7]",
+  Script: "bg-[#dcfce7] text-[#16a34a]",
+  AI: "bg-[#faf5ff] text-[#9810fa]",
+  "Video Report": "bg-[#fef3c7] text-[#d97706]",
+  "Project Progress": "bg-[#f3f4f6] text-[#6a7282]",
+};
 
-  async function refreshBoard() {
+function toUiColumn(stage: WorkflowStage): UiColumn {
+  if (stage === "Production") return "In Progress";
+  if (stage === "Review") return "In Review";
+  if (stage === "Publish") return "Done";
+  return "To Do";
+}
+
+function defaultStageForColumn(column: UiColumn): WorkflowStage {
+  if (column === "In Progress") return "Production";
+  if (column === "In Review") return "Review";
+  if (column === "Done") return "Publish";
+  return "Idea";
+}
+
+function inferPriority(item: WorkflowItem): "High" | "Medium" | "Low" {
+  if (!item.due_date) return "Medium";
+  const due = new Date(`${item.due_date}T00:00:00`);
+  const today = new Date();
+  const ms = due.getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const days = Math.floor(ms / 86400000);
+  if (days <= 1) return "High";
+  if (days <= 4) return "Medium";
+  return "Low";
+}
+
+function inferSource(item: WorkflowItem): "Chat" | "Script" | "AI" | "Video Report" | "Project Progress" {
+  const linked = (item.linked_trend ?? "").toLowerCase();
+  if (linked.includes("chat")) return "Chat";
+  if (linked.includes("script")) return "Script";
+  if (linked.includes("video") || linked.includes("report")) return "Video Report";
+  if (linked.includes("progress")) return "Project Progress";
+  return "AI";
+}
+
+export default function WorkflowPage() {
+  const [items, setItems] = useState<WorkflowItem[]>([]);
+  const [logs, setLogs] = useState<WorkflowActivityLog[]>([]);
+  const [selectedProject, setSelectedProject] = useState("All Projects");
+  const [selectedGroup, setSelectedGroup] = useState("All Groups");
+  const [selectedItemId, setSelectedItemId] = useState<string>("");
+  const [detailDismissed, setDetailDismissed] = useState(false);
+  const [detailTargetStage, setDetailTargetStage] = useState<WorkflowStage>("Idea");
+  const [showLogs, setShowLogs] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createProject, setCreateProject] = useState("General");
+  const [createOwner, setCreateOwner] = useState("");
+  const [createDueDate, setCreateDueDate] = useState("");
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<UiColumn | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [flashMessage, setFlashMessage] = useState("");
+
+  async function refreshItems() {
     const response = await listWorkflowItems();
     setItems(response.items);
   }
 
   async function refreshLogs() {
     const response = await listWorkflowActivityLogs();
-    setActivityLogs(response.items);
+    setLogs(response.items);
   }
 
-  async function handleCreateItem(event: FormEvent) {
+  useEffect(() => {
+    void (async () => {
+      setIsBusy(true);
+      try {
+        await Promise.all([refreshItems(), refreshLogs()]);
+      } catch (error) {
+        setFlashMessage(`Load failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsBusy(false);
+      }
+    })();
+  }, []);
+
+  const projectFilters = useMemo(() => {
+    const projects = Array.from(new Set(items.map((i) => i.project || "General"))).sort((a, b) => a.localeCompare(b));
+    return ["All Projects", ...projects];
+  }, [items]);
+
+  const groupFilters = useMemo(() => {
+    const owners = Array.from(new Set(items.map((i) => i.owner || "Unassigned"))).sort((a, b) => a.localeCompare(b));
+    return ["All Groups", ...owners];
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      const project = item.project || "General";
+      const owner = item.owner || "Unassigned";
+      const projectOk = selectedProject === "All Projects" || project === selectedProject;
+      const groupOk = selectedGroup === "All Groups" || owner === selectedGroup;
+      return projectOk && groupOk;
+    });
+  }, [items, selectedProject, selectedGroup]);
+
+  useEffect(() => {
+    if (filteredItems.length === 0) {
+      setSelectedItemId("");
+      setDetailDismissed(false);
+      return;
+    }
+    const exists = filteredItems.some((item) => item.item_id === selectedItemId);
+    if (!exists && !detailDismissed) {
+      setSelectedItemId(filteredItems[0].item_id);
+    }
+  }, [filteredItems, selectedItemId, detailDismissed]);
+
+  const selectedItem = filteredItems.find((item) => item.item_id === selectedItemId) ?? null;
+  useEffect(() => {
+    if (selectedItem) {
+      setDetailTargetStage(selectedItem.stage);
+    }
+  }, [selectedItem]);
+
+  const summary = useMemo(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const dueToday = filteredItems.filter((i) => i.due_date === todayIso).length;
+    const inProgress = filteredItems.filter((i) => i.stage === "Production").length;
+    const inReview = filteredItems.filter((i) => i.stage === "Review").length;
+    const overdue = filteredItems.filter((i) => i.due_date && i.stage !== "Publish" && i.due_date < todayIso).length;
+    return { dueToday, inProgress, inReview, overdue };
+  }, [filteredItems]);
+
+  const tasksByColumn = useMemo(() => {
+    const grouped: Record<UiColumn, WorkflowItem[]> = {
+      "To Do": [],
+      "In Progress": [],
+      "In Review": [],
+      "Done": [],
+    };
+    for (const item of filteredItems) {
+      grouped[toUiColumn(item.stage)].push(item);
+    }
+    return grouped;
+  }, [filteredItems]);
+
+  async function handleMoveToStage(item: WorkflowItem, toStage: WorkflowStage, note: string) {
+    if (item.stage === toStage) {
+      setFlashMessage(`Task is already in ${toStage}.`);
+      return;
+    }
+    setIsBusy(true);
+    try {
+      await updateWorkflowStage(item.item_id, { to_stage: toStage, note });
+      await Promise.all([refreshItems(), refreshLogs()]);
+      setFlashMessage(`Task moved to ${toStage}.`);
+    } catch (error) {
+      setFlashMessage(`Update failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsBusy(false);
+      setDragOverColumn(null);
+    }
+  }
+
+  async function handleMarkDone(item: WorkflowItem) {
+    await handleMoveToStage(item, "Publish", "Marked as done from tasks UI.");
+  }
+
+  async function handleCreate(event: FormEvent) {
     event.preventDefault();
-    if (!title.trim()) {
+    if (!createTitle.trim()) {
       setFlashMessage("Title is required.");
       return;
     }
     setIsBusy(true);
     try {
       await createWorkflowItem({
-        title: title.trim(),
-        description: description.trim(),
-        owner: owner.trim() || undefined,
-        project: project.trim() || "General",
-        linked_trend: linkedTrend.trim() || undefined,
-        stage,
-        due_date: dueDate || undefined,
-        comments: commentsInput
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
-        links: linksInput
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
-        attachments,
+        title: createTitle.trim(),
+        description: createDescription.trim(),
+        project: createProject.trim() || "General",
+        owner: createOwner.trim() || undefined,
+        due_date: createDueDate || undefined,
+        stage: "Idea",
       });
-      setTitle("");
-      setDescription("");
-      setOwner("");
-      setProject("General");
-      setLinkedTrend("");
-      setStage("Idea");
-      setDueDate("");
-      setCommentsInput("");
-      setLinksInput("");
-      setAttachments([]);
-      await refreshBoard();
-      await refreshLogs();
+      setCreateTitle("");
+      setCreateDescription("");
+      setCreateProject("General");
+      setCreateOwner("");
+      setCreateDueDate("");
+      setShowCreate(false);
+      await Promise.all([refreshItems(), refreshLogs()]);
       setFlashMessage("Workflow item created.");
-      setActiveTab("dashboard");
     } catch (error) {
-      setFlashMessage(`Create failed: ${String(error)}`);
+      setFlashMessage(`Create failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function handleStageChange(item: WorkflowItem, toStage: WorkflowStage) {
-    if (item.stage === toStage) {
-      return;
-    }
-    setIsBusy(true);
-    try {
-      await updateWorkflowStage(item.item_id, {
-        to_stage: toStage,
-        note: "Stage changed from workflow board dashboard.",
-      });
-      await refreshBoard();
-      await refreshLogs();
-      setFlashMessage(`Moved "${item.title}" to ${toStage}.`);
-    } catch (error) {
-      setFlashMessage(`Stage update failed: ${String(error)}`);
-    } finally {
-      setIsBusy(false);
-    }
+  function showNoBackendNotice(feature: string) {
+    setFlashMessage(`${feature} is a UI-only control for now (no backend endpoint yet).`);
   }
-
-  async function handleDelete(itemId: string) {
-    setIsBusy(true);
-    try {
-      await deleteWorkflowItem(itemId);
-      await refreshBoard();
-      await refreshLogs();
-      setFlashMessage("Workflow item deleted.");
-    } catch (error) {
-      setFlashMessage(`Delete failed: ${String(error)}`);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  function beginEdit(item: WorkflowItem) {
-    setEditingItemId(item.item_id);
-    setEditTitle(item.title);
-    setEditOwner(item.owner ?? "");
-    setEditProject(item.project ?? "General");
-    setEditDescription(item.description ?? "");
-    setEditLinkedTrend(item.linked_trend ?? "");
-    setEditStage(item.stage);
-    setEditDueDate(item.due_date ?? "");
-    setEditCommentsInput((item.comments ?? []).join("\n"));
-    setEditLinksInput((item.links ?? []).join("\n"));
-    setEditAttachments(item.attachments ?? []);
-  }
-
-  async function handleCreateUpload(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setIsBusy(true);
-    try {
-      const uploaded: string[] = [];
-      for (const file of Array.from(files)) {
-        const response = await uploadWorkflowAttachment(file);
-        uploaded.push(response.url);
-      }
-      setAttachments((prev) => [...prev, ...uploaded]);
-      setFlashMessage("Files uploaded.");
-    } catch (error) {
-      setFlashMessage(`Upload failed: ${String(error)}`);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function handleEditUpload(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setIsBusy(true);
-    try {
-      const uploaded: string[] = [];
-      for (const file of Array.from(files)) {
-        const response = await uploadWorkflowAttachment(file);
-        uploaded.push(response.url);
-      }
-      setEditAttachments((prev) => [...prev, ...uploaded]);
-      setFlashMessage("Files uploaded.");
-    } catch (error) {
-      setFlashMessage(`Upload failed: ${String(error)}`);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  function onDragStart(itemId: string) {
-    setDraggedItemId(itemId);
-  }
-
-  function onDragEnd() {
-    setDraggedItemId(null);
-    setDropStage(null);
-  }
-
-  async function onDropStage(stage: WorkflowStage) {
-    if (!draggedItemId) {
-      return;
-    }
-    const item = items.find((entry) => entry.item_id === draggedItemId);
-    if (!item) {
-      return;
-    }
-    await handleStageChange(item, stage);
-    onDragEnd();
-  }
-
-  async function handleSaveEdit() {
-    if (!editingItemId) {
-      return;
-    }
-    setIsBusy(true);
-    try {
-      const existing = items.find((entry) => entry.item_id === editingItemId);
-      if (existing && existing.stage !== editStage) {
-        await updateWorkflowStage(editingItemId, {
-          to_stage: editStage,
-          note: "Stage updated from edit popup.",
-        });
-      }
-      await updateWorkflowItem(editingItemId, {
-        title: editTitle.trim() || undefined,
-        owner: editOwner.trim() || undefined,
-        project: editProject.trim() || "General",
-        description: editDescription,
-        linked_trend: editLinkedTrend.trim() || undefined,
-        due_date: editDueDate || undefined,
-        comments: editCommentsInput
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
-        links: editLinksInput
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
-        attachments: editAttachments,
-      });
-      await refreshBoard();
-      await refreshLogs();
-      setEditingItemId("");
-      setFlashMessage("Workflow item updated.");
-    } catch (error) {
-      setFlashMessage(`Update failed: ${String(error)}`);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  const itemsByStage = stages.map((stage) => ({
-    stage,
-    items: items.filter((item) => item.stage === stage),
-  }));
 
   return (
-    <main className="flex min-h-full w-full flex-col gap-6 px-4 py-8 md:px-10">
-      <section>
-        <h1 className="text-3xl font-semibold tracking-tight">Workflow Management</h1>
-        <p className="text-muted-foreground">
-          Plan, track, and manage work items with structured metadata and stage transitions.
-        </p>
-      </section>
-
-      <section className="flex gap-2">
-        <button
-          className={buttonVariants({ variant: activeTab === "create" ? "default" : "outline" })}
-          type="button"
-          onClick={() => setActiveTab("create")}
-        >
-          Create Work Item
-        </button>
-        <button
-          className={buttonVariants({ variant: activeTab === "dashboard" ? "default" : "outline" })}
-          type="button"
-          onClick={() => {
-            setActiveTab("dashboard");
-            void refreshBoard();
-          }}
-        >
-          Dashboard
-        </button>
-        <button
-          className={buttonVariants({ variant: activeTab === "logs" ? "default" : "outline" })}
-          type="button"
-          onClick={() => {
-            setActiveTab("logs");
-            void refreshLogs();
-          }}
-        >
-          Logs
-        </button>
-      </section>
-
-      {activeTab === "create" ? (
-        <section className="rounded-xl border bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-xl font-semibold">Create Work Item</h2>
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={handleCreateItem}>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Title</span>
-              <input
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Define work item title"
-              />
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Owner</span>
-              <input
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                value={owner}
-                onChange={(event) => setOwner(event.target.value)}
-                placeholder="Assignee name"
-              />
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Project</span>
-              <input
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                value={project}
-                onChange={(event) => setProject(event.target.value)}
-                placeholder="Project name"
-              />
-            </label>
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm font-medium">Description</span>
-              <textarea
-                className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Detailed context, acceptance criteria, expected outcome"
-              />
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Stage</span>
-              <select
-                className={`h-11 w-full rounded-md border px-3 text-sm font-semibold ${stageTheme[stage].select}`}
-                value={stage}
-                onChange={(event) => setStage(event.target.value as WorkflowStage)}
-              >
-                {stages.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {entry}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Due Date</span>
-              <input
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                type="date"
-                value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
-              />
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Linked Context</span>
-              <input
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                value={linkedTrend}
-                onChange={(event) => setLinkedTrend(event.target.value)}
-                placeholder="Related trend, epic, or module"
-              />
-            </label>
-            <label className="space-y-2">
-              <span className="text-sm font-medium">Created On</span>
-              <input
-                className="h-11 w-full rounded-md border bg-muted px-3 text-sm text-muted-foreground"
-                value={new Date().toLocaleDateString()}
-                readOnly
-              />
-            </label>
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm font-medium">Comments (one per line)</span>
-              <textarea
-                className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
-                value={commentsInput}
-                onChange={(event) => setCommentsInput(event.target.value)}
-                placeholder="Initial notes, clarifications, or review comments"
-              />
-            </label>
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm font-medium">Links (one URL per line)</span>
-              <textarea
-                className="min-h-20 w-full rounded-md border bg-background p-3 text-sm"
-                value={linksInput}
-                onChange={(event) => setLinksInput(event.target.value)}
-                placeholder="https://..."
-              />
-            </label>
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm font-medium">Media / Docs Upload</span>
-              <input
-                className="h-11 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                type="file"
-                multiple
-                onChange={(event) => void handleCreateUpload(event.target.files)}
-              />
-              {attachments.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {attachments.map((fileUrl) => (
-                    <span key={fileUrl} className="rounded bg-muted px-2 py-1 text-xs">
-                      {fileUrl}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </label>
-            <div className="flex gap-2 md:col-span-2">
-              <button className={buttonVariants()} type="submit" disabled={isBusy}>
-                Save Work Item
-              </button>
-              <button
-                className={buttonVariants({ variant: "outline" })}
-                type="button"
-                onClick={() => {
-                  setTitle("");
-                  setDescription("");
-                  setOwner("");
-                  setProject("General");
-                  setLinkedTrend("");
-                  setDueDate("");
-                  setCommentsInput("");
-                  setLinksInput("");
-                  setAttachments([]);
-                  setStage("Idea");
-                }}
-                disabled={isBusy}
-              >
-                Clear
-              </button>
-            </div>
-          </form>
-          <p className="mt-3 text-sm text-muted-foreground">{flashMessage || "Ready."}</p>
-        </section>
-      ) : null}
-
-      {activeTab === "dashboard" ? (
-        <section className="rounded-xl border bg-card p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Workflow Board</h2>
+    <main className="min-h-full bg-[#f9fafb] px-8 py-7">
+      <div className="mx-auto flex w-full max-w-[1500px] min-w-0 flex-col">
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="mb-1 text-[32px] font-bold text-[#101828]">My Tasks</h1>
+            <p className="text-[15px] text-[#6a7282]">Track all tasks assigned to you across projects and groups.</p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
-              className={buttonVariants({ variant: "outline" })}
               type="button"
-              onClick={() => void refreshBoard()}
-              disabled={isBusy}
+              onClick={() => setShowCreate(true)}
+              className="rounded-xl border border-[#101828] bg-[#101828] px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#1e293b]"
             >
-              Refresh Board
+              New Task
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowLogs(true)}
+              className="rounded-xl border border-[#e5e7eb] bg-white px-4 py-2 text-[12px] font-semibold text-[#364153] transition-colors hover:bg-[#f3f4f6]"
+            >
+              Activity Log
             </button>
           </div>
-          <p className="mb-2 text-sm text-muted-foreground">{flashMessage || "Ready."}</p>
+        </div>
 
-          <section className="overflow-x-auto pb-2">
-            <div className="flex min-w-max gap-4">
-              {itemsByStage.map(({ stage, items: stageItems }) => (
-                <article
-                  key={stage}
-                  className={`h-[70vh] min-h-[560px] w-[320px] rounded-xl border p-4 shadow-sm transition-colors md:w-[360px] ${stageTheme[stage].column} ${dropStage === stage ? stageTheme[stage].accent : ""}`}
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff7ed] text-[#f54900]"><Calendar size={16} /></div>
+            <div><p className="text-[24px] font-extrabold text-[#f54900]">{summary.dueToday}</p><p className="text-[12px] text-[#6a7282]">Due today</p></div>
+          </div>
+          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e0f2fe] text-[#0ea5e9]"><Clock size={16} /></div>
+            <div><p className="text-[24px] font-extrabold text-[#0ea5e9]">{summary.inProgress}</p><p className="text-[12px] text-[#6a7282]">In progress</p></div>
+          </div>
+          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#faf5ff] text-[#9810fa]"><RotateCcw size={16} /></div>
+            <div><p className="text-[24px] font-extrabold text-[#9810fa]">{summary.inReview}</p><p className="text-[12px] text-[#6a7282]">Waiting for review</p></div>
+          </div>
+          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fee2e2] text-[#dc2626]"><AlertCircle size={16} /></div>
+            <div><p className="text-[24px] font-extrabold text-[#dc2626]">{summary.overdue}</p><p className="text-[12px] text-[#6a7282]">Overdue</p></div>
+          </div>
+        </div>
+
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          {projectFilters.map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSelectedProject(f)}
+              className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                selectedProject === f
+                  ? "border-[#101828] bg-[#101828] text-white"
+                  : "border-[#e5e7eb] bg-white text-[#364153] hover:border-[#101828]"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+          <div className="mx-1 h-5 w-px bg-[#e5e7eb]" />
+          {groupFilters.map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSelectedGroup(f)}
+              className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                selectedGroup === f
+                  ? "border-[#9810fa] bg-[#9810fa] text-white"
+                  : "border-[#e5e7eb] bg-white text-[#364153] hover:border-[#9810fa]"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex min-h-0 flex-1 gap-5">
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 overflow-x-auto lg:grid-cols-4">
+            {COLUMNS.map((column) => {
+              const columnTasks = tasksByColumn[column];
+              const colColor: Record<UiColumn, string> = {
+                "To Do": "#6a7282",
+                "In Progress": "#0ea5e9",
+                "In Review": "#9810fa",
+                "Done": "#16a34a",
+              };
+              return (
+                <section
+                  key={column}
+                  className={`flex min-w-[220px] flex-col rounded-xl transition-colors ${dragOverColumn === column ? "bg-[#f3f4f6]/70" : ""}`}
                   onDragOver={(event) => {
                     event.preventDefault();
-                    setDropStage(stage);
+                    setDragOverColumn(column);
                   }}
-                  onDragLeave={() => setDropStage((current) => (current === stage ? null : current))}
+                  onDragLeave={() => setDragOverColumn((current) => (current === column ? null : current))}
                   onDrop={(event) => {
                     event.preventDefault();
-                    void onDropStage(stage);
+                    const itemId = draggedItemId;
+                    setDraggedItemId(null);
+                    setDragOverColumn(null);
+                    if (!itemId) return;
+                    const item = items.find((entry) => entry.item_id === itemId);
+                    if (!item) return;
+                    void handleMoveToStage(
+                      item,
+                      defaultStageForColumn(column),
+                      `Dragged task to ${column} column.`,
+                    );
                   }}
                 >
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">{stage}</h3>
-                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stageTheme[stage].badge}`}>
-                      {stageItems.length} items
-                    </span>
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-[13px] font-bold" style={{ color: colColor[column] }}>{column}</span>
+                    <span className="rounded-full bg-[#f3f4f6] px-1.5 py-0.5 text-[11px] font-semibold text-[#6a7282]">{columnTasks.length}</span>
                   </div>
-                  <div className="h-[calc(70vh-100px)] min-h-[450px] overflow-y-auto pr-1">
-                    <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
-                      {stageItems.map((item) => (
-                        <div
-                          key={item.item_id}
-                          className={`rounded-lg border bg-background p-2 shadow-sm ${draggedItemId === item.item_id ? "opacity-60" : ""}`}
+                  <div className="flex-1 space-y-3">
+                    {columnTasks.map((task) => {
+                      const priority = inferPriority(task);
+                      const source = inferSource(task);
+                      const due = task.due_date ? new Date(`${task.due_date}T00:00:00`).toLocaleDateString() : "No due date";
+                      const commentsCount = task.comments?.length ?? 0;
+                      return (
+                        <button
+                          key={task.item_id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedItemId(task.item_id);
+                            setDetailDismissed(false);
+                          }}
                           draggable
-                          onDragStart={() => onDragStart(item.item_id)}
-                          onDragEnd={onDragEnd}
+                          onDragStart={() => setDraggedItemId(task.item_id)}
+                          onDragEnd={() => {
+                            setDraggedItemId(null);
+                            setDragOverColumn(null);
+                          }}
+                          className={`w-full rounded-xl border bg-white p-3 text-left transition-colors ${
+                            selectedItemId === task.item_id
+                              ? "border-[#9810fa] shadow-sm"
+                              : "border-[#e5e7eb] hover:border-[#d1d5db]"
+                          }`}
                         >
-                          <p className="truncate text-xs font-semibold">{item.title}</p>
-                          <p className="truncate text-[10px] text-muted-foreground">
-                            {item.owner || "Unassigned"}
-                          </p>
-                          <p className="truncate text-[10px] text-muted-foreground">
-                            {item.project || "General"} •{" "}
-                            {item.created_at ? new Date(item.created_at).toLocaleString() : "-"}
-                          </p>
-                          <div className="mt-2 flex flex-col gap-1">
-                            <select
-                              className={`h-8 w-full rounded-md border px-2 text-[11px] font-semibold ${stageTheme[item.stage].select}`}
-                              value={item.stage}
-                              onChange={(event) => void handleStageChange(item, event.target.value as WorkflowStage)}
-                              onClick={(event) => event.stopPropagation()}
-                              disabled={isBusy}
-                            >
-                              {stages.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="flex gap-1">
-                              <button
-                                className={buttonVariants({ variant: "outline", size: "xs" })}
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  beginEdit(item);
-                                }}
-                                disabled={isBusy}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className={buttonVariants({ variant: "destructive", size: "xs" })}
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleDelete(item.item_id);
-                                }}
-                                disabled={isBusy}
-                              >
-                                Del
-                              </button>
-                            </div>
+                          <p className="mb-2 text-[12px] font-semibold leading-snug text-[#101828]">{task.title}</p>
+                          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${PRIORITY_COLORS[priority]}`}>{priority}</span>
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${SOURCE_COLORS[source]}`}>{source}</span>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                    {stageItems.length === 0 ? (
-                      <p className="rounded-lg border border-dashed bg-white/60 p-4 text-sm text-muted-foreground">
-                        Drop workflow items here
-                      </p>
+                          <p className="mb-1 text-[10px] font-medium text-[#9810fa]">{task.project || "General"}</p>
+                          <p className="mb-2 text-[10px] text-[#9a9ea6]">{task.owner || "Unassigned"}</p>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1 text-[#9a9ea6]"><Calendar size={10} /><span className="text-[10px]">{due}</span></div>
+                            {commentsCount > 0 ? (
+                              <div className="flex items-center gap-0.5 text-[#9a9ea6]"><MessageSquare size={10} /><span className="text-[10px]">{commentsCount}</span></div>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {columnTasks.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-[#d1d5db] bg-white px-3 py-5 text-[12px] text-[#9a9ea6]">No tasks</div>
                     ) : null}
                   </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        </section>
-      ) : null}
-
-      {activeTab === "logs" ? (
-        <section className="rounded-xl border bg-card p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Activity Logs</h2>
-            <button
-              className={buttonVariants({ variant: "outline" })}
-              type="button"
-              onClick={() => void refreshLogs()}
-              disabled={isBusy}
-            >
-              Refresh Logs
-            </button>
+                </section>
+              );
+            })}
           </div>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Captures all workflow changes for the default single user.
-          </p>
-          <div className="max-h-[65vh] overflow-auto rounded-lg border">
-            {activityLogs.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">No activity logged yet.</p>
-            ) : (
-              <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-muted/80">
-                  <tr>
-                    <th className="px-3 py-2">Time</th>
-                    <th className="px-3 py-2">Action</th>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2">Details</th>
-                    <th className="px-3 py-2">Actor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activityLogs.map((log) => (
-                    <tr key={log.log_id} className="border-t">
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {new Date(log.created_at).toLocaleString()}
-                      </td>
-                      <td className="px-3 py-2 font-medium">{log.action}</td>
-                      <td className="px-3 py-2">{log.item_title || log.item_id || "-"}</td>
-                      <td className="px-3 py-2">{log.details}</td>
-                      <td className="px-3 py-2">{log.actor}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
-      ) : null}
 
-      {editingItemId ? (
-        <section className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-3xl rounded-lg border bg-card shadow-xl">
-            <h2 className="mb-3 font-semibold">Edit Workflow Item</h2>
-            <div className="max-h-[75vh] overflow-y-auto p-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">Title</span>
-                  <input
-                    className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                    value={editTitle}
-                    onChange={(event) => setEditTitle(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">Owner</span>
-                  <input
-                    className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                    value={editOwner}
-                    onChange={(event) => setEditOwner(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">Project</span>
-                  <input
-                    className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                    value={editProject}
-                    onChange={(event) => setEditProject(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm font-medium">Description</span>
-                  <textarea
-                    className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
-                    value={editDescription}
-                    onChange={(event) => setEditDescription(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">Stage</span>
-                  <select
-                    className={`h-11 w-full rounded-md border px-3 text-sm font-semibold ${stageTheme[editStage].select}`}
-                    value={editStage}
-                    onChange={(event) => setEditStage(event.target.value as WorkflowStage)}
-                  >
-                    {stages.map((entry) => (
-                      <option key={entry} value={entry}>
-                        {entry}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">Due Date</span>
-                  <input
-                    className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                    type="date"
-                    value={editDueDate}
-                    onChange={(event) => setEditDueDate(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm font-medium">Linked Context</span>
-                  <input
-                    className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                    value={editLinkedTrend}
-                    onChange={(event) => setEditLinkedTrend(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm font-medium">Comments (one per line)</span>
-                  <textarea
-                    className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
-                    value={editCommentsInput}
-                    onChange={(event) => setEditCommentsInput(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm font-medium">Links (one per line)</span>
-                  <textarea
-                    className="min-h-20 w-full rounded-md border bg-background p-3 text-sm"
-                    value={editLinksInput}
-                    onChange={(event) => setEditLinksInput(event.target.value)}
-                  />
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm font-medium">Media / Docs Upload</span>
-                  <input
-                    className="h-11 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    type="file"
-                    multiple
-                    onChange={(event) => void handleEditUpload(event.target.files)}
-                  />
-                  {editAttachments.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {editAttachments.map((fileUrl) => (
-                        <span key={fileUrl} className="rounded bg-muted px-2 py-1 text-xs">
-                          {fileUrl}
-                        </span>
+          {selectedItem ? (
+            <aside className="sticky top-6 h-fit w-[268px] shrink-0 rounded-2xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
+              <div className="mb-3 flex items-start justify-between">
+                <h3 className="text-[13px] font-bold leading-snug text-[#101828]">{selectedItem.title}</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedItemId("");
+                    setDetailDismissed(true);
+                  }}
+                  className="ml-2 shrink-0 text-[#9a9ea6] transition-colors hover:text-[#101828]"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_COLORS[inferPriority(selectedItem)]}`}>{inferPriority(selectedItem)}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SOURCE_COLORS[inferSource(selectedItem)]}`}>From {inferSource(selectedItem)}</span>
+              </div>
+
+              <p className="mb-4 text-[12px] leading-relaxed text-[#6a7282]">{selectedItem.description || "No description provided."}</p>
+
+              <div className="mb-4 space-y-2 text-[12px]">
+                <div><span className="text-[#9a9ea6]">Assignee: </span><span className="font-medium text-[#101828]">{selectedItem.owner || "Unassigned"}</span></div>
+                <div><span className="text-[#9a9ea6]">Due: </span><span className="font-medium text-[#101828]">{selectedItem.due_date ? new Date(`${selectedItem.due_date}T00:00:00`).toLocaleDateString() : "No due date"}</span></div>
+                <div><span className="text-[#9a9ea6]">Project: </span><span className="font-medium text-[#9810fa]">{selectedItem.project || "General"}</span></div>
+                {selectedItem.linked_trend ? (
+                  <div><span className="text-[#9a9ea6]">Linked: </span><span className="font-medium text-[#101828]">{selectedItem.linked_trend}</span></div>
+                ) : null}
+                <div className="flex items-center gap-1.5 rounded-lg bg-[#fef3c7] px-2 py-1">
+                  <BarChart2 size={11} className="text-[#d97706]" />
+                  <span className="text-[11px] font-semibold text-[#d97706]">Current stage: {selectedItem.stage}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t border-[#f3f4f6] pt-3">
+                <button
+                  type="button"
+                  onClick={() => void handleMarkDone(selectedItem)}
+                  disabled={isBusy}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#101828] py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <CheckSquare size={13} />
+                  Mark as Done
+                </button>
+                <div className="space-y-1 rounded-xl border border-[#e5e7eb] p-2">
+                  <label className="block text-[11px] font-semibold text-[#6a7282]">Change status</label>
+                  <div className="flex gap-2">
+                    <select
+                      className="h-8 flex-1 rounded-lg border border-[#e5e7eb] bg-white px-2 text-[12px] text-[#101828]"
+                      value={detailTargetStage}
+                      onChange={(event) => setDetailTargetStage(event.target.value as WorkflowStage)}
+                    >
+                      {STAGE_OPTIONS.map((stage) => (
+                        <option key={stage} value={stage}>
+                          {stage}
+                        </option>
                       ))}
-                    </div>
-                  ) : null}
-                </label>
+                    </select>
+                    <button
+                      type="button"
+                      disabled={isBusy || detailTargetStage === selectedItem.stage}
+                      onClick={() => void handleMoveToStage(selectedItem, detailTargetStage, "Updated from task detail panel.")}
+                      className="rounded-lg border border-[#101828] bg-[#101828] px-3 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => showNoBackendNotice("Open source chat")}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#e5e7eb] py-2 text-[12px] font-medium text-[#364153] transition-colors hover:bg-[#f3f4f6]"
+                >
+                  <MessageSquare size={13} />
+                  Open Source Chat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => showNoBackendNotice("Open related script")}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#e5e7eb] py-2 text-[12px] font-medium text-[#364153] transition-colors hover:bg-[#f3f4f6]"
+                >
+                  <ExternalLink size={13} />
+                  Open Related Script
+                </button>
               </div>
+            </aside>
+          ) : null}
+        </div>
+
+        <p className="mt-4 text-[12px] text-[#6a7282]">{isBusy ? "Working..." : flashMessage || "Ready."}</p>
+      </div>
+
+      {showCreate ? (
+        <section className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <form onSubmit={handleCreate} className="w-full max-w-[560px] rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-[20px] font-bold text-[#101828]">Create Task</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-[12px] text-[#364153]">Title
+                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} />
+              </label>
+              <label className="text-[12px] text-[#364153]">Owner
+                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createOwner} onChange={(e) => setCreateOwner(e.target.value)} />
+              </label>
+              <label className="text-[12px] text-[#364153]">Project
+                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createProject} onChange={(e) => setCreateProject(e.target.value)} />
+              </label>
+              <label className="text-[12px] text-[#364153]">Due Date
+                <input type="date" className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
+              </label>
+              <label className="text-[12px] text-[#364153] md:col-span-2">Description
+                <textarea className="mt-1 min-h-20 w-full rounded-xl border border-[#e5e7eb] px-3 py-2 text-[13px]" value={createDescription} onChange={(e) => setCreateDescription(e.target.value)} />
+              </label>
             </div>
-            <div className="border-t p-5">
-              <div className="flex gap-2">
-              <button className={buttonVariants()} type="button" onClick={() => void handleSaveEdit()} disabled={isBusy}>
-                Save
-              </button>
-              <button
-                className={buttonVariants({ variant: "outline" })}
-                type="button"
-                onClick={() => setEditingItemId("")}
-                disabled={isBusy}
-              >
-                Cancel
-              </button>
-              </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="rounded-xl border border-[#e5e7eb] px-4 py-2 text-[12px] font-semibold text-[#364153]" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button type="submit" disabled={isBusy} className="rounded-xl border border-[#101828] bg-[#101828] px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-60">Create</button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      {showLogs ? (
+        <section className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-[880px] rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-[20px] font-bold text-[#101828]">Workflow Activity Log</h2>
+              <button type="button" className="text-[#6a7282] hover:text-[#101828]" onClick={() => setShowLogs(false)}><X size={18} /></button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto rounded-xl border border-[#e5e7eb]">
+              {logs.length === 0 ? (
+                <p className="p-4 text-[13px] text-[#6a7282]">No activity logs yet.</p>
+              ) : (
+                <table className="w-full text-left text-[12px]">
+                  <thead className="sticky top-0 bg-[#f9fafb]"><tr><th className="px-3 py-2">Time</th><th className="px-3 py-2">Action</th><th className="px-3 py-2">Item</th><th className="px-3 py-2">Details</th></tr></thead>
+                  <tbody>
+                    {logs.map((log) => (
+                      <tr key={log.log_id} className="border-t border-[#f3f4f6]">
+                        <td className="px-3 py-2 text-[#6a7282]">{new Date(log.created_at).toLocaleString()}</td>
+                        <td className="px-3 py-2 font-semibold text-[#101828]">{log.action}</td>
+                        <td className="px-3 py-2 text-[#101828]">{log.item_title || log.item_id || "-"}</td>
+                        <td className="px-3 py-2 text-[#364153]">{log.details}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </section>
