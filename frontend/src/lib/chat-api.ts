@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 export class ChatApiError extends Error {
   constructor(
@@ -44,7 +43,7 @@ async function requestJson(url: string, init?: RequestInit) {
       throw error;
     }
     throw new ChatApiError(
-      "Unable to reach backend API. Ensure FastAPI is running on http://127.0.0.1:8000.",
+      "Unable to reach backend API. Ensure Render API is reachable or set NEXT_PUBLIC_API_BASE_URL for your environment.",
     );
   }
 }
@@ -54,6 +53,11 @@ export async function registerUser(payload: {
   password: string;
   display_name?: string;
 }) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -62,6 +66,11 @@ export async function registerUser(payload: {
 }
 
 export async function loginUser(payload: { username: string; password: string }) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,12 +79,22 @@ export async function loginUser(payload: { username: string; password: string })
 }
 
 export async function listChatUsers(token: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/users`, {
     headers: authHeaders(token),
   });
 }
 
 export async function sendDirectMessage(token: string, targetUserId: string, content: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/dm/${targetUserId}`, {
     method: "POST",
     headers: authHeaders(token),
@@ -84,12 +103,22 @@ export async function sendDirectMessage(token: string, targetUserId: string, con
 }
 
 export async function listDirectMessages(token: string, targetUserId: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/dm/${targetUserId}`, {
     headers: authHeaders(token),
   });
 }
 
 export async function createGroup(token: string, payload: { name: string; description?: string }) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups`, {
     method: "POST",
     headers: authHeaders(token),
@@ -98,12 +127,22 @@ export async function createGroup(token: string, payload: { name: string; descri
 }
 
 export async function listGroups(token: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups`, {
     headers: authHeaders(token),
   });
 }
 
 export async function joinGroup(token: string, groupId: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/request-join`, {
     method: "POST",
     headers: authHeaders(token),
@@ -111,12 +150,22 @@ export async function joinGroup(token: string, groupId: string) {
 }
 
 export async function searchChat(token: string, q: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/search?q=${encodeURIComponent(q)}`, {
     headers: authHeaders(token),
   });
 }
 
 export async function listGroupJoinRequests(token: string, groupId: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/requests`, {
     headers: authHeaders(token),
   });
@@ -128,6 +177,11 @@ export async function respondToGroupJoinRequest(
   requesterUserId: string,
   approve: boolean,
 ) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/requests/action`, {
     method: "POST",
     headers: authHeaders(token),
@@ -136,6 +190,11 @@ export async function respondToGroupJoinRequest(
 }
 
 export async function sendGroupMessage(token: string, groupId: string, content: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/messages`, {
     method: "POST",
     headers: authHeaders(token),
@@ -144,6 +203,11 @@ export async function sendGroupMessage(token: string, groupId: string, content: 
 }
 
 export async function listGroupMessages(token: string, groupId: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/messages`, {
     headers: authHeaders(token),
   });
@@ -153,6 +217,11 @@ export async function askChatAi(
   token: string,
   payload: { chat_type: "dm" | "group"; target_id: string; question: string },
 ): Promise<{ answer: string }> {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
   return requestJson(`${API_BASE_URL}/chat/ask-ai`, {
     method: "POST",
     headers: authHeaders(token),

@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 function readToken() {
   if (typeof window === "undefined") return "";
@@ -21,6 +20,13 @@ export async function apiRequest<TResponse>(
   path: string,
   init?: RequestInit,
 ): Promise<TResponse> {
+  if (!API_BASE_URL) {
+    throw new ApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+      0,
+    );
+  }
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
