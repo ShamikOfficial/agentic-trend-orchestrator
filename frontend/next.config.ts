@@ -33,7 +33,7 @@ const appEnv = (process.env.APP_ENV ?? "development").toLowerCase();
 const apiBaseFromMode =
   appEnv === "production"
     ? process.env.API_BASE_URL_PROD ??
-      "https://agentic-trend-orchestrator.onrender.com/api/v1"
+      "https://agentic-trend-orchestrator-production.up.railway.app/api/v1"
     : process.env.API_BASE_URL_DEV ?? "http://127.0.0.1:8000/api/v1";
 const publicApiBaseUrl = rootEnv.NEXT_PUBLIC_API_BASE_URL ?? apiBaseFromMode;
 
