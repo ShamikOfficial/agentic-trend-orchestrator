@@ -26,7 +26,7 @@ This repository contains a web MVP for:
    ```powershell
    python -m pip install -r requirements.txt
    ```
-4. Create local env file:
+4. Create local env file (single file for backend + frontend):
    ```powershell
    Copy-Item .env.example .env
    ```
@@ -40,6 +40,9 @@ python -m pytest backend/tests
 ```powershell
 python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+Backend and frontend both use root `.env`.
+Set `APP_ENV=development` for local mode and `APP_ENV=production` for hosted mode.
 
 ## Run Frontend Web App (separate terminal)
 ```powershell
@@ -56,7 +59,7 @@ Then open `http://localhost:3000` in your browser.
 4. Deploy the **production** branch (often `main`). Every pull request and non-production branch gets a **Preview** URL automatically.
 5. On the machine that runs the FastAPI backend, CORS allows `https://*.vercel.app` by default (`CORS_ALLOW_VERCEL` defaults to on). Add domains to `CORS_ORIGINS` for custom hostnames, or set `CORS_ALLOW_VERCEL=false` to allow only `CORS_ORIGINS` + localhost (see root `.env.example`).
 
-See `frontend/.env.example` for frontend-only variables.
+Frontend also reads root `.env` (via `frontend/next.config.ts`), so you keep one env source.
 
 ## Notes
 - Auth users are saved under `data/auth_store.json` (gitignored) so logins survive `uvicorn --reload`. Delete that file to reset accounts. Passwords are stored in plaintext for local MVP only.

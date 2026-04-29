@@ -9,6 +9,6 @@ def health_check() -> dict:
         "status": "ok",
         "services": {
             "openai_configured": False,
-            "milvus_connected": False,
+            "faiss_ready": True,
         },
     }

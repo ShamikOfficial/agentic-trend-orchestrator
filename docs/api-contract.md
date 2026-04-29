@@ -37,7 +37,7 @@ Response example:
   "status": "ok",
   "services": {
     "openai_configured": false,
-    "milvus_connected": false
+    "faiss_ready": true
   }
 }
 ```

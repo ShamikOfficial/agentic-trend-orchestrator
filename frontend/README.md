@@ -17,11 +17,13 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 ## API Base URL
-Set `NEXT_PUBLIC_API_BASE_URL` when needed. Default is:
+Frontend reads API URL from root `.env`:
 
-`https://agentic-trend-orchestrator.onrender.com/api/v1`
+- `APP_ENV=development` => `API_BASE_URL_DEV`
+- `APP_ENV=production` => `API_BASE_URL_PROD`
 
-Copy `frontend/.env.example` for local overrides. On Vercel, set the same variable per **Environment** (Production vs Preview) if staging and production APIs differ; see root `README.md` deploy section.
+Optional override: set `NEXT_PUBLIC_API_BASE_URL` directly.
+On Vercel, set root-env equivalent variables in project Environment settings; see root `README.md` deploy section.
 
 ## Current Goal
 Ship and polish authenticated Team/Workflow/Chat modules while preparing ingest/trend/query screens.
