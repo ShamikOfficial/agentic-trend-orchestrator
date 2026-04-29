@@ -36,7 +36,7 @@ Based on the current design coverage matrix, these screens are still present in 
 | SaveProject | `/app/save` | `/app/save` | Implemented (basic) | Added save form wired to workflow item creation as basic persistence bridge. |
 | MyTasks | `/app/tasks` | `/workflow` | Implemented (UI aligned) | Workflow page restyled to the Figma tasks board structure. |
 | ProjectProgress | `/app/progress` | `/app/progress` | Implemented (basic) | Added project-level progress dashboard based on workflow tasks and activity logs, with development placeholders for missing deep links. |
-| VideoUpload | `/app/upload` | `/app/upload` | Implemented (backend-wired) | Upload now calls FastAPI `/api/v1/trend/upload` and ingests video into trend analytics pipeline (Milvus/OpenAI) for downstream trend features. |
+| VideoUpload | `/app/upload` | `/app/upload` | Implemented (backend-wired) | Upload now calls FastAPI `/api/v1/trend/upload` and ingests video into trend analytics pipeline (FAISS/OpenAI) for downstream trend features. |
 | VideoReport | `/app/report` | `/app/report` | Implemented (basic) | Added report screen shell and rewired actions to report-chat/progress/tasks. |
 | ChatMain | `/app/chat` | `/chat` | Implemented (UI aligned) | Restyled toward the Figma header/composer/right-panel pattern while preserving available backend wiring. |
 | ScriptReview | `/app/chat-review` | `/app/chat-review` | Implemented (basic) | Added placeholder review screen and rewired navigation to editor/tasks. |
@@ -93,7 +93,7 @@ These are intentionally clickable but show a no-backend message in the flash lin
 
 ### VideoUpload
 - Ingestion is synchronous and can take time for longer videos (transcribe + frame caption + embedding).
-- Requires backend runtime dependencies (`OPENAI_API_KEY`, ffmpeg, Milvus config) to complete processing.
+- Requires backend runtime dependencies (`OPENAI_API_KEY`, ffmpeg, FAISS deps) to complete processing.
 
 ### ChatMain
 - Group QR code backend generation is not available.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -12,6 +13,13 @@ router = APIRouter()
 _allowed_extensions = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 _trend_uploads = Path("backend/trend_analytics/videos")
 _trend_uploads.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_upload_stem(filename: str) -> str:
+    stem = Path(filename).stem
+    # Keep only safe ASCII filename characters for ffmpeg/ffprobe on Windows.
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-")
+    return safe or "video"
 
 
 class UploadTrendVideoResponse(BaseModel):
@@ -38,7 +46,7 @@ async def upload_and_ingest_video(
             detail=f"Unsupported extension: {suffix or 'none'}. Allowed: {sorted(_allowed_extensions)}",
         )
 
-    destination = _trend_uploads / f"uploaded_{Path(file.filename or 'video').stem}{suffix}"
+    destination = _trend_uploads / f"uploaded_{_safe_upload_stem(file.filename or 'video')}{suffix}"
     content = await file.read()
     destination.write_bytes(content)
 
@@ -60,7 +68,7 @@ async def upload_and_ingest_video(
         raise HTTPException(
             status_code=500,
             detail=(
-                "Trend ingest failed. Ensure OPENAI_API_KEY, ffmpeg, and Milvus configuration are available. "
+                "Trend ingest failed. Ensure OPENAI_API_KEY, ffmpeg, and FAISS dependencies are available. "
                 f"Root error: {exc}"
             ),
         ) from exc

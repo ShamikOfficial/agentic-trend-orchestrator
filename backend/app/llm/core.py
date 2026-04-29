@@ -9,9 +9,9 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from dotenv import load_dotenv
+from backend.app.env import load_app_env
 
-load_dotenv()
+load_app_env()
 
 
 @dataclass

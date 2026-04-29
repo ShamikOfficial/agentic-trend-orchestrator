@@ -3,10 +3,6 @@ import re
 from pathlib import Path
 from time import perf_counter
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +11,9 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app import auth_state
 from backend.app.api.routes import chat, health, team, trend_analytics, workflow
+from backend.app.env import load_app_env
+
+load_app_env()
 
 
 def _cors_allow_origins() -> list[str]:

@@ -16,11 +16,9 @@ def ingest_uploaded_video(
     platform: str = "upload",
     prompt: str | None = None,
 ) -> dict:
-    from run import connect
+    from db import fetch_summary_by_file_id
     from src.ingest.ingest import ingest_video
-    from db import ensure_summaries_collection
 
-    connect()
     file_id = ingest_video(
         str(video_path),
         vlm_prompt=prompt
@@ -28,13 +26,7 @@ def ingest_uploaded_video(
         platform=platform,
     )
 
-    col = ensure_summaries_collection()
-    col.load()
-    rows = col.query(
-        expr=f'file_id == "{file_id}"',
-        output_fields=["file_id", "summary", "niche", "topic", "platform", "file_path"],
-        limit=1,
-    )
-    if rows:
-        return rows[0]
+    row = fetch_summary_by_file_id(file_id)
+    if row:
+        return row
     return {"file_id": file_id, "platform": platform, "file_path": str(video_path)}

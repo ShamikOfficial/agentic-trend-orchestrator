@@ -1,4 +1,4 @@
-# Python version: use 3.11 or 3.12 for full Trend Analytics support (milvus-lite unavailable on 3.13+).
+# Python version: use 3.11 or 3.12 for full Trend Analytics support.
 fastapi
 uvicorn
 python-multipart
@@ -9,7 +9,7 @@ jupyter
 
 # Trend Analytics pipeline dependencies (backend/trend_analytics)
 openai>=1.30.0
-pymilvus[milvus_lite]>=2.4.0
+faiss-cpu>=1.8.0
 sentence-transformers>=3.0.0
 numpy>=1.26.0
 scikit-learn>=1.4.0
