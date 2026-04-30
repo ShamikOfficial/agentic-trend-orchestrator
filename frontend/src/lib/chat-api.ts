@@ -42,8 +42,12 @@ async function requestJson(url: string, init?: RequestInit) {
     if (error instanceof ChatApiError) {
       throw error;
     }
+    const hint =
+      error instanceof Error && error.message
+        ? ` (${error.message})`
+        : "";
     throw new ChatApiError(
-      "Unable to reach backend API. Ensure Render API is reachable or set NEXT_PUBLIC_API_BASE_URL for your environment.",
+      `Unable to reach backend API.${hint} Check the API URL (NEXT_PUBLIC_API_BASE_URL / root .env APP_ENV + API_BASE_URL_*), CORS, and that the server is running.`,
     );
   }
 }
