@@ -3,8 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 function loadRootEnv(): Record<string, string> {
-  const rootEnvPath = path.resolve(process.cwd(), "../.env");
-  if (!fs.existsSync(rootEnvPath)) return {};
+  // Support both:
+  // - `npm run dev` from `frontend/` → ../.env is repo root
+  // - `npm --prefix frontend run dev` from repo root → cwd is repo root, use ./.env
+  const candidates = [
+    path.resolve(process.cwd(), ".env"),
+    path.resolve(process.cwd(), "..", ".env"),
+  ];
+  const rootEnvPath = candidates.find((p) => fs.existsSync(p));
+  if (!rootEnvPath) return {};
 
   const raw = fs.readFileSync(rootEnvPath, "utf8");
   const parsed: Record<string, string> = {};
