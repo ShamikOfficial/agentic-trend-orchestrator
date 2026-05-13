@@ -9,6 +9,7 @@ import {
   LogOut,
   MessageCircle,
   Settings,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import { clearAuthToken } from "@/lib/auth-store";
@@ -26,6 +27,12 @@ const nav = [
     label: "Script Generation",
     Icon: FileText,
     activeFor: ["/app", "/app/brief", "/app/editor", "/app/variations", "/app/storyboard", "/app/save"],
+  },
+  {
+    href: "/app/trend-detection",
+    label: "Trend Detection",
+    Icon: Sparkles,
+    activeFor: ["/app/trend-detection"],
   },
   {
     href: "/app/upload",

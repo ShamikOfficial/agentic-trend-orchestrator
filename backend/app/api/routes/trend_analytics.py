@@ -32,6 +32,26 @@ class UploadTrendVideoResponse(BaseModel):
     ingest_status: str
 
 
+class TrendClusterItem(BaseModel):
+    file_id: str
+    topic: str
+    summary: str
+
+
+class TrendCluster(BaseModel):
+    cluster_index: int
+    video_count: int
+    trend: str
+    why: str
+    items: list[TrendClusterItem]
+
+
+class TrendClustersResponse(BaseModel):
+    niche: str
+    clusters: list[TrendCluster]
+    debug: dict
+
+
 @router.post("/trend/upload", response_model=UploadTrendVideoResponse)
 async def upload_and_ingest_video(
     file: UploadFile = File(...),
@@ -82,3 +102,21 @@ async def upload_and_ingest_video(
         summary=result.get("summary"),
         ingest_status="ingested",
     )
+
+
+@router.get("/trend/clusters", response_model=TrendClustersResponse)
+async def get_trend_clusters(niche: str) -> TrendClustersResponse:
+    cleaned_niche = niche.strip()
+    if not cleaned_niche:
+        raise HTTPException(status_code=400, detail="niche is required")
+    try:
+        payload = trend_analytics_service.detect_clusters_for_niche(cleaned_niche)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Trend cluster detection failed. Ensure OPENAI_API_KEY and trend analytics dependencies are available. "
+                f"Root error: {exc}"
+            ),
+        ) from exc
+    return TrendClustersResponse(**payload)
