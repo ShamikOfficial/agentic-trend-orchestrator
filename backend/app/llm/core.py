@@ -124,7 +124,7 @@ def _generate_text_gemini(
         except LlmError as exc:
             error_text = str(exc)
             last_error = error_text
-            if _is_quota_or_limit_error(error_text):
+            if _is_quota_or_limit_error(error_text) or _is_model_not_found_error(error_text):
                 continue
             raise
     raise LlmError(f"All Gemini models failed. Last error: {last_error or 'unknown error'}")
@@ -218,6 +218,11 @@ def _is_quota_or_limit_error(error_text: str) -> bool:
         token in lowered
         for token in ("429", "quota", "rate limit", "resource_exhausted", "too many requests")
     )
+
+
+def _is_model_not_found_error(error_text: str) -> bool:
+    lowered = error_text.lower()
+    return "404" in lowered and "not_found" in lowered
 
 
 def _extract_gemini_text(data: dict[str, Any]) -> str:

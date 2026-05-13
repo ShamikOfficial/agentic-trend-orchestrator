@@ -17,6 +17,31 @@ export type TrendUploadResponse = {
   ingest_status: string;
 };
 
+export type TrendClusterItem = {
+  file_id: string;
+  topic: string;
+  summary: string;
+};
+
+export type TrendCluster = {
+  cluster_index: number;
+  video_count: number;
+  trend: string;
+  why: string;
+  items: TrendClusterItem[];
+};
+
+export type TrendClustersResponse = {
+  niche: string;
+  clusters: TrendCluster[];
+  debug: {
+    total_videos: number;
+    cluster_count: number;
+    duration_ms: number;
+    logs: string[];
+  };
+};
+
 export async function uploadTrendVideo(file: File, options?: { platform?: string; ingestNow?: boolean; prompt?: string }) {
   if (!API_BASE_URL) {
     throw new ChatApiError(
@@ -41,4 +66,20 @@ export async function uploadTrendVideo(file: File, options?: { platform?: string
     throw new ChatApiError(payload?.detail || `Upload failed: ${response.status}`, response.status);
   }
   return payload as TrendUploadResponse;
+}
+
+export async function getTrendClusters(niche: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  const response = await fetch(`${API_BASE_URL}/trend/clusters?niche=${encodeURIComponent(niche.trim())}`, {
+    headers: readToken() ? { "x-auth-token": readToken() } : undefined,
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new ChatApiError(payload?.detail || `Trend detection failed: ${response.status}`, response.status);
+  }
+  return payload as TrendClustersResponse;
 }
