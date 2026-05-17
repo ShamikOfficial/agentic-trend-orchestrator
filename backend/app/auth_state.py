@@ -1,93 +1,108 @@
 from __future__ import annotations
 
-import json
+import os
+import re
 from datetime import UTC, datetime
-from pathlib import Path
 
+from passlib.context import CryptContext
+
+from backend.app.persistence import auth_repo
 from backend.app.services.team import service as id_service
 
-_users: dict[str, dict] = {}
-_sessions: dict[str, str] = {}
-
-# Persists across uvicorn --reload (in-memory alone loses users on restart → login 401).
-_AUTH_STORE = Path(__file__).resolve().parents[2] / "data" / "auth_store.json"
-
-
-def _persist() -> None:
-    _AUTH_STORE.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"users": _users, "sessions": _sessions}
-    _AUTH_STORE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-
-def _load() -> None:
-    global _users, _sessions
-    if not _AUTH_STORE.is_file():
-        return
-    try:
-        raw = json.loads(_AUTH_STORE.read_text(encoding="utf-8"))
-        if isinstance(raw.get("users"), dict):
-            _users = raw["users"]
-        if isinstance(raw.get("sessions"), dict):
-            _sessions = {k: str(v) for k, v in raw["sessions"].items()}
-    except (json.JSONDecodeError, OSError, TypeError, KeyError):
-        pass
-
-
-_load()
+_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _password_auth_enabled() -> bool:
+    flag = os.getenv("ALLOW_PASSWORD_AUTH", "true").strip().lower()
+    return flag not in ("0", "false", "no")
+
+
 def create_user(username: str, password: str, display_name: str | None = None) -> dict:
+    if not _password_auth_enabled():
+        raise ValueError("Password registration is disabled.")
     lowered = username.lower()
-    if any(user["username"] == lowered for user in _users.values()):
+    if auth_repo.find_user_by_username(lowered):
         raise ValueError("Username already exists.")
     user_id = id_service._make_id("usr")
     user = {
         "user_id": user_id,
         "username": lowered,
-        "password": password,
+        "email": lowered if "@" in lowered else None,
         "display_name": display_name or username,
+        "password_hash": _pwd.hash(password),
         "created_at": now_iso(),
     }
-    _users[user_id] = user
-    _persist()
+    auth_repo.create_user_record(user)
     return user
 
 
 def login_user(username: str, password: str) -> tuple[str, dict] | None:
-    lowered = username.lower()
-    match = next(
-        (
-            user
-            for user in _users.values()
-            if user["username"] == lowered and user["password"] == password
-        ),
-        None,
-    )
-    if not match:
+    if not _password_auth_enabled():
+        return None
+    match = auth_repo.find_user_by_username(username)
+    if not match or not match.get("password_hash"):
+        return None
+    if not _pwd.verify(password, match["password_hash"]):
         return None
     token = id_service._make_id("tok")
-    _sessions[token] = match["user_id"]
-    _persist()
+    auth_repo.save_session(token, match["user_id"])
     return token, match
 
 
 def resolve_user_from_token(token: str | None) -> str | None:
-    if not token:
-        return None
-    return _sessions.get(token)
+    return auth_repo.resolve_session(token)
 
 
 def safe_user(user_id: str) -> dict:
-    return {k: v for k, v in _users[user_id].items() if k != "password"}
+    user = auth_repo.get_user(user_id)
+    if not user:
+        raise KeyError(user_id)
+    return {k: v for k, v in user.items() if k not in ("password", "password_hash")}
 
 
 def list_other_users(current_user_id: str) -> list[dict]:
     return [
-        safe_user(user_id)
-        for user_id in _users
-        if user_id != current_user_id
+        safe_user(uid)
+        for uid in auth_repo.list_user_ids()
+        if uid != current_user_id
     ]
+
+
+def iter_users() -> list[dict]:
+    return [
+        safe_user(uid)
+        for uid in auth_repo.list_user_ids()
+        if auth_repo.get_user(uid)
+    ]
+
+
+def upsert_oauth_from_claims(claims: dict) -> dict:
+    email = claims.get("email")
+    if isinstance(email, str):
+        email = email.lower()
+    name = str(claims.get("name") or claims.get("display_name") or email or "User")
+    provider = str(claims.get("provider") or "oauth")
+    subject = str(claims.get("providerAccountId") or claims.get("sub") or "")
+    if not subject:
+        raise ValueError("OAuth token missing subject.")
+
+    base_username = (email.split("@")[0] if email else re.sub(r"[^a-z0-9]", "", name.lower()) or "user")[:20]
+    username = base_username
+    suffix = 0
+    while auth_repo.find_user_by_username(username):
+        suffix += 1
+        username = f"{base_username}{suffix}"
+
+    user_id = id_service._make_id("usr")
+    return auth_repo.upsert_oauth_user(
+        user_id=user_id,
+        email=email,
+        username=username,
+        display_name=name,
+        oauth_provider=provider,
+        oauth_subject=subject,
+    )

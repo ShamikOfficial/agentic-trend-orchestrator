@@ -172,6 +172,16 @@ export interface UpdateWorkflowItemResponse {
   updated: boolean;
 }
 
+export interface AddWorkflowCommentRequest {
+  text: string;
+}
+
+export interface AddWorkflowCommentResponse {
+  item_id: string;
+  comment_index: number;
+  total_comments: number;
+}
+
 export interface DeleteWorkflowItemResponse {
   item_id: string;
   deleted: boolean;
@@ -194,4 +204,47 @@ export interface ListWorkflowActivityResponse {
 export interface UploadWorkflowAttachmentResponse {
   name: string;
   url: string;
+}
+
+export interface ChatTaskSuggestion {
+  action: "create" | "update" | "comment" | "close";
+  reasoning: string;
+  title: string;
+  description: string;
+  owner: string;
+  priority: "low" | "medium" | "high";
+  existing_item_id: string;
+  update_fields: Record<string, string>;
+  comment: string;
+}
+
+export interface ChatExtractTasksRequest {
+  chat_type: "dm" | "group";
+  target_id: string;
+  force?: boolean;
+}
+
+export interface ChatExtractTasksResponse {
+  status: "pending" | "analyzed";
+  unanalyzed_count: number;
+  threshold?: number;
+  suggestions: ChatTaskSuggestion[];
+}
+
+export interface ChatApplyTaskActionRequest {
+  action: "create" | "update" | "comment" | "close";
+  title?: string;
+  description?: string;
+  owner?: string;
+  priority?: string;
+  existing_item_id?: string;
+  update_fields?: Record<string, string>;
+  comment?: string;
+}
+
+export interface ChatApplyTaskActionResponse {
+  action: string;
+  item_id: string;
+  title?: string;
+  applied: boolean;
 }

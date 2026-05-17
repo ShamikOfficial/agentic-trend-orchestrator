@@ -28,6 +28,26 @@ class LlmError(RuntimeError):
     """Raised for LLM transport/provider failures."""
 
 
+class LlmQuotaError(LlmError):
+    """Raised when per-user trial quota is exceeded."""
+
+    def __init__(self, detail: str, *, tokens_used: int, token_budget: int) -> None:
+        super().__init__(detail)
+        self.tokens_used = tokens_used
+        self.token_budget = token_budget
+
+
+@dataclass
+class TokenUsage:
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+
+
+_last_token_usage: TokenUsage | None = None
+
+
 def _use_api_system_instruction(model_name: str) -> bool:
     """Some models (e.g. Gemma 3) return 400 if systemInstruction is set."""
     raw = os.getenv("GEMINI_USE_SYSTEM_INSTRUCTION", "auto").strip().lower()
@@ -89,6 +109,70 @@ def generate_text(
     config: LlmConfig | None = None,
     response_mime_json: bool = False,
 ) -> str:
+    text, _usage, _model = _generate_text_with_usage(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        config=config,
+        response_mime_json=response_mime_json,
+    )
+    return text
+
+
+def generate_text_guarded(
+    user_id: str,
+    feature: str,
+    prompt: str,
+    *,
+    system_prompt: str | None = None,
+    config: LlmConfig | None = None,
+    response_mime_json: bool = False,
+    estimated_tokens: int = 4000,
+) -> str:
+    if os.getenv("LLM_GLOBAL_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        raise LlmError("AI features are temporarily disabled.")
+
+    from backend.app.persistence import llm_repo
+
+    try:
+        llm_repo.check_and_reserve_quota(user_id, estimated_tokens=estimated_tokens)
+    except llm_repo.QuotaExceededError as exc:
+        raise LlmQuotaError(
+            exc.detail,
+            tokens_used=exc.tokens_used,
+            token_budget=exc.token_budget,
+        ) from exc
+
+    text, usage, model_name = _generate_text_with_usage(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        config=config,
+        response_mime_json=response_mime_json,
+    )
+    llm_repo.record_usage(
+        user_id,
+        feature=feature,
+        model=model_name or (config.model if config else load_llm_config().model),
+        prompt_tokens=usage.prompt_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+    )
+    return text
+
+
+def pop_last_token_usage() -> TokenUsage | None:
+    global _last_token_usage
+    usage = _last_token_usage
+    _last_token_usage = None
+    return usage
+
+
+def _generate_text_with_usage(
+    prompt: str,
+    *,
+    system_prompt: str | None = None,
+    config: LlmConfig | None = None,
+    response_mime_json: bool = False,
+) -> tuple[str, TokenUsage, str]:
     cfg = config or load_llm_config()
     if cfg.provider == "gemini":
         return _generate_text_gemini(
@@ -106,7 +190,7 @@ def _generate_text_gemini(
     system_prompt: str | None,
     config: LlmConfig,
     response_mime_json: bool = False,
-) -> str:
+) -> tuple[str, TokenUsage, str]:
     if not config.api_key:
         raise LlmError("Missing GEMINI_API_KEY in environment.")
 
@@ -137,7 +221,7 @@ def _generate_text_gemini_for_model(
     config: LlmConfig,
     model_name: str,
     response_mime_json: bool = False,
-) -> str:
+) -> tuple[str, TokenUsage, str]:
     url = f"{config.base_url}/models/{model_name}:generateContent"
     temp = float(os.getenv("LLM_TEMPERATURE", "0.25"))
 
@@ -185,11 +269,19 @@ def _generate_text_gemini_for_model(
                 if _llm_debug_raw():
                     print(f"[llm-debug] model={model_name} json_mime={attempt_json_mime} raw_response=\n{raw}")
                 data = json.loads(raw)
-                _log_gemini_token_usage(model_name, data)
+                usage = _parse_gemini_token_usage(model_name, data)
+                global _last_token_usage
+                _last_token_usage = usage
+                if _llm_verbose():
+                    print(
+                        f"[llm-debug] provider=gemini model={model_name} "
+                        f"prompt_tokens={usage.prompt_tokens} output_tokens={usage.output_tokens} "
+                        f"total_tokens={usage.total_tokens}"
+                    )
                 extracted = _extract_gemini_text(data)
                 if _llm_debug_raw():
                     print(f"[llm-debug] model={model_name} extracted_text=\n{extracted}")
-                return extracted
+                return extracted, usage, model_name
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
             last_detail = detail
@@ -240,14 +332,15 @@ def _extract_gemini_text(data: dict[str, Any]) -> str:
     return text
 
 
-def _log_gemini_token_usage(model_name: str, data: dict[str, Any]) -> None:
-    """Temporary terminal logging for prompt/completion token debugging."""
+def _parse_gemini_token_usage(model_name: str, data: dict[str, Any]) -> TokenUsage:
     usage = data.get("usageMetadata") or {}
-    prompt_tokens = usage.get("promptTokenCount", 0)
-    output_tokens = usage.get("candidatesTokenCount", 0)
-    total_tokens = usage.get("totalTokenCount", 0)
-    print(
-        f"[llm-debug] provider=gemini model={model_name} "
-        f"prompt_tokens={prompt_tokens} output_tokens={output_tokens} total_tokens={total_tokens}"
+    prompt_tokens = int(usage.get("promptTokenCount", 0) or 0)
+    output_tokens = int(usage.get("candidatesTokenCount", 0) or 0)
+    total_tokens = int(usage.get("totalTokenCount", 0) or 0) or (prompt_tokens + output_tokens)
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        model=model_name,
     )
 

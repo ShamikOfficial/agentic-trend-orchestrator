@@ -12,6 +12,8 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
+import { signOut } from "next-auth/react";
+import { clearBearerCache } from "@/lib/auth-session";
 import { clearAuthToken } from "@/lib/auth-store";
 import { loginPathWithReason } from "@/lib/auth-redirect";
 
@@ -60,6 +62,8 @@ export function AppSidebar() {
 
   function handleLogout() {
     clearAuthToken();
+    clearBearerCache();
+    void signOut({ callbackUrl: loginPathWithReason("logged_out") });
     window.dispatchEvent(new Event("auth-changed"));
     router.replace(loginPathWithReason("logged_out"));
   }

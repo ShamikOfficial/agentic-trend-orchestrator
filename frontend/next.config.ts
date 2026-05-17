@@ -36,13 +36,21 @@ function loadRootEnv(): Record<string, string> {
 
 const rootEnv = loadRootEnv();
 
-const appEnv = (process.env.APP_ENV ?? "development").toLowerCase();
+// On Vercel, default to production API unless explicitly overridden (local APP_ENV=development).
+const appEnv = (
+  process.env.NEXT_PUBLIC_API_BASE_URL
+    ? process.env.APP_ENV
+    : process.env.VERCEL
+      ? "production"
+      : process.env.APP_ENV
+)?.toLowerCase() ?? "development";
 const apiBaseFromMode =
   appEnv === "production"
     ? process.env.API_BASE_URL_PROD ??
       "https://agentic-trend-orchestrator-production.up.railway.app/api/v1"
     : process.env.API_BASE_URL_DEV ?? "http://127.0.0.1:8000/api/v1";
-const publicApiBaseUrl = rootEnv.NEXT_PUBLIC_API_BASE_URL ?? apiBaseFromMode;
+const publicApiBaseUrl =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? rootEnv.NEXT_PUBLIC_API_BASE_URL ?? apiBaseFromMode;
 
 const nextConfig: NextConfig = {
   env: {
