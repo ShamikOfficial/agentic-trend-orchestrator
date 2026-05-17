@@ -1,0 +1,3 @@
+{"sessionId": "7377be", "runId": "pre-fix", "hypothesisId": "H2", "location": "main.py:pre-import", "message": "main module import begin", "data": {}, "timestamp": 1779005069989}
+{"sessionId": "7377be", "runId": "pre-fix", "hypothesisId": "H2", "location": "main.py:post-import", "message": "core imports finished", "data": {"has_database_url": false}, "timestamp": 1779005071344}
+{"sessionId": "7377be", "runId": "pre-fix", "hypothesisId": "H3", "location": "main.py:paths", "message": "upload root ready", "data": {"upload_root": "\\tmp\\test-uploads", "port": ""}, "timestamp": 1779005071346}
