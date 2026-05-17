@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
@@ -27,8 +28,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   ChatApiError,
+  applyTaskAction,
   askChatAi,
   createGroup,
+  extractChatTasks,
   joinGroup,
   listGroupJoinRequests,
   listChatUsers,
@@ -41,7 +44,9 @@ import {
   sendGroupMessage,
 } from "@/lib/chat-api";
 import { clearAuthToken, getAuthToken, getAuthUser } from "@/lib/auth-store";
+import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
 import { loginPathWithReason } from "@/lib/auth-redirect";
+import type { ChatTaskSuggestion } from "@/types/api";
 
 type ChatMode = "dm" | "group";
 
@@ -93,8 +98,10 @@ function parseChatAiIntent(text: string): { isAskAi: boolean; question: string |
 
 export default function ChatPage() {
   const router = useRouter();
-  const [token, setToken] = useState(() => getAuthToken());
-  const [currentUserId, setCurrentUserId] = useState(() => getAuthUser()?.user_id ?? "");
+  const { status: sessionStatus } = useSession();
+  const [mounted, setMounted] = useState(false);
+  const [token, setToken] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
   const [users, setUsers] = useState<ChatUser[]>([]);
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [activeTargetId, setActiveTargetId] = useState("");
@@ -124,21 +131,46 @@ export default function ChatPage() {
   const [askAiBusy, setAskAiBusy] = useState(false);
   const [aiReply, setAiReply] = useState<{ content: string } | null>(null);
   const [showAIActions, setShowAIActions] = useState(false);
+  const [taskSuggestions, setTaskSuggestions] = useState<ChatTaskSuggestion[]>([]);
+  const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+  const [applyingIndex, setApplyingIndex] = useState<number | null>(null);
+
+  const authed = sessionStatus === "authenticated" || Boolean(token);
+  const apiAuth = token || undefined;
 
   useEffect(() => {
-    const user = getAuthUser();
-    setCurrentUserId(user?.user_id ?? "");
+    setToken(getAuthToken());
+    setCurrentUserId(getAuthUser()?.user_id ?? "");
+    setMounted(true);
   }, []);
 
   useEffect(() => {
-    setAiReply(null);
-  }, [activeTargetId, chatMode]);
+    if (sessionStatus === "authenticated") {
+      void (async () => {
+        const bearer = await fetchBearerToken();
+        if (bearer) {
+          await syncOAuthUser(bearer);
+          const user = getAuthUser();
+          if (user?.user_id) setCurrentUserId(user.user_id);
+          window.dispatchEvent(new Event("auth-changed"));
+        }
+      })();
+    }
+  }, [sessionStatus]);
 
   useEffect(() => {
-    if (!getAuthToken()) {
+    if (!mounted || sessionStatus === "loading") return;
+    if (!authed) {
       router.replace(loginPathWithReason("login_required"));
     }
-  }, [router]);
+  }, [mounted, sessionStatus, authed, router]);
+
+  useEffect(() => {
+    setAiReply(null);
+    setTaskSuggestions([]);
+    setTaskPanelOpen(false);
+  }, [activeTargetId, chatMode]);
 
   const handleApiError = useCallback(
     (error: unknown) => {
@@ -159,38 +191,37 @@ export default function ChatPage() {
   );
 
   useEffect(() => {
-    if (token) {
-      void (async () => {
-        try {
-          const [usersResponse, groupsResponse] = await Promise.all([
-            listChatUsers(token),
-            listGroups(token),
-          ]);
-          setUsers(usersResponse.items);
-          setGroups(groupsResponse.items);
-          if (!activeTargetId) {
-            if (usersResponse.items.length > 0) {
-              const topDm = usersResponse.items[0];
-              setActiveTargetId(topDm.user_id);
-              setChatMode("dm");
-              const dmResponse = await listDirectMessages(token, topDm.user_id);
-              setMessages(dmResponse.items);
-            } else if (groupsResponse.items.length > 0) {
-              const topGroup = groupsResponse.items[0];
-              setActiveTargetId(topGroup.group_id);
-              setChatMode("group");
-              const groupResponse = await listGroupMessages(token, topGroup.group_id);
-              setMessages(groupResponse.items);
-            }
+    if (!authed) return;
+    void (async () => {
+      try {
+        const [usersResponse, groupsResponse] = await Promise.all([
+          listChatUsers(apiAuth),
+          listGroups(apiAuth),
+        ]);
+        setUsers(usersResponse.items);
+        setGroups(groupsResponse.items);
+        if (!activeTargetId) {
+          if (usersResponse.items.length > 0) {
+            const topDm = usersResponse.items[0];
+            setActiveTargetId(topDm.user_id);
+            setChatMode("dm");
+            const dmResponse = await listDirectMessages(apiAuth, topDm.user_id);
+            setMessages(dmResponse.items);
+          } else if (groupsResponse.items.length > 0) {
+            const topGroup = groupsResponse.items[0];
+            setActiveTargetId(topGroup.group_id);
+            setChatMode("group");
+            const groupResponse = await listGroupMessages(apiAuth, topGroup.group_id);
+            setMessages(groupResponse.items);
           }
-        } catch (error) {
-          handleApiError(error);
         }
-      })();
-    }
-  }, [token, handleApiError, activeTargetId]);
+      } catch (error) {
+        handleApiError(error);
+      }
+    })();
+  }, [authed, apiAuth, handleApiError, activeTargetId]);
 
-  async function refreshGroups(currentToken = token) {
+  async function refreshGroups(currentToken = apiAuth) {
     try {
       const response = await listGroups(currentToken);
       setGroups(response.items);
@@ -205,8 +236,8 @@ export default function ChatPage() {
       setChatMode(mode);
       const response =
         mode === "dm"
-          ? await listDirectMessages(token, targetId)
-          : await listGroupMessages(token, targetId);
+          ? await listDirectMessages(apiAuth, targetId)
+          : await listGroupMessages(apiAuth, targetId);
       setMessages(response.items);
     } catch (error) {
       handleApiError(error);
@@ -225,17 +256,17 @@ export default function ChatPage() {
       setAskAiBusy(true);
       setFlash("");
       try {
-        const { answer } = await askChatAi(token, {
+        const { answer } = await askChatAi(apiAuth, {
           chat_type: chatMode === "dm" ? "dm" : "group",
           target_id: activeTargetId,
           question,
         });
         setAiReply({ content: answer });
         if (chatMode === "dm") {
-          await sendDirectMessage(token, activeTargetId, body);
+          await sendDirectMessage(apiAuth, activeTargetId, body);
           await loadMessages(activeTargetId, "dm");
         } else {
-          await sendGroupMessage(token, activeTargetId, body);
+          await sendGroupMessage(apiAuth, activeTargetId, body);
           await loadMessages(activeTargetId, "group");
         }
         setComposer("");
@@ -249,14 +280,15 @@ export default function ChatPage() {
     }
     try {
       if (chatMode === "dm") {
-        await sendDirectMessage(token, activeTargetId, body);
+        await sendDirectMessage(apiAuth, activeTargetId, body);
         await loadMessages(activeTargetId, "dm");
       } else {
-        await sendGroupMessage(token, activeTargetId, body);
+        await sendGroupMessage(apiAuth, activeTargetId, body);
         await loadMessages(activeTargetId, "group");
       }
       setComposer("");
       setComposerFiles([]);
+      void triggerTaskExtraction(false);
     } catch (error) {
       handleApiError(error);
     }
@@ -268,7 +300,7 @@ export default function ChatPage() {
       return;
     }
     try {
-      await createGroup(token, { name: groupName.trim(), description: groupDescription.trim() });
+      await createGroup(apiAuth, { name: groupName.trim(), description: groupDescription.trim() });
       setGroupName("");
       setGroupDescription("");
       await refreshGroups();
@@ -280,7 +312,7 @@ export default function ChatPage() {
 
   async function handleJoinGroup(groupId: string) {
     try {
-      await joinGroup(token, groupId);
+      await joinGroup(apiAuth, groupId);
       await refreshGroups();
       setFlash("Join request sent.");
     } catch (error) {
@@ -290,7 +322,7 @@ export default function ChatPage() {
 
   async function handleSearch() {
     try {
-      const response = await searchChat(token, searchQuery);
+      const response = await searchChat(apiAuth, searchQuery);
       setSearchUsers(response.users);
       setSearchGroups(response.groups);
     } catch (error) {
@@ -300,7 +332,7 @@ export default function ChatPage() {
 
   async function handleLoadRequests(groupId: string) {
     try {
-      const response = await listGroupJoinRequests(token, groupId);
+      const response = await listGroupJoinRequests(apiAuth, groupId);
       setGroupRequests(response.items);
       setRequestGroupId(groupId);
     } catch {
@@ -312,7 +344,7 @@ export default function ChatPage() {
 
   async function handleRequestAction(groupId: string, requesterUserId: string, approve: boolean) {
     try {
-      await respondToGroupJoinRequest(token, groupId, requesterUserId, approve);
+      await respondToGroupJoinRequest(apiAuth, groupId, requesterUserId, approve);
       await handleLoadRequests(groupId);
       await refreshGroups();
       setFlash(approve ? "Request approved." : "Request rejected.");
@@ -339,12 +371,59 @@ export default function ChatPage() {
     setFlash(`${label} is UI-only for now (backend workflow route not available).`);
   }
 
-  if (!token) {
-    return (
-      <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
-        Redirecting to sign in…
-      </main>
-    );
+  async function triggerTaskExtraction(force: boolean) {
+    if (!activeTargetId || isAnalyzingTasks) return;
+    setIsAnalyzingTasks(true);
+    try {
+      const result = await extractChatTasks(apiAuth, {
+        chat_type: chatMode,
+        target_id: activeTargetId,
+        force,
+      });
+      if (result.status === "analyzed" && result.suggestions?.length > 0) {
+        setTaskSuggestions(result.suggestions);
+        setTaskPanelOpen(true);
+      } else if (force && result.status === "analyzed" && result.suggestions?.length === 0) {
+        setFlash("No actionable tasks found in recent messages.");
+      }
+    } catch (error) {
+      if (force) {
+        handleApiError(error);
+      }
+    } finally {
+      setIsAnalyzingTasks(false);
+    }
+  }
+
+  async function handleAcceptSuggestion(index: number) {
+    const suggestion = taskSuggestions[index];
+    if (!suggestion) return;
+    setApplyingIndex(index);
+    try {
+      await applyTaskAction(apiAuth, {
+        action: suggestion.action,
+        title: suggestion.title || undefined,
+        description: suggestion.description || undefined,
+        owner: suggestion.owner || undefined,
+        priority: suggestion.priority || undefined,
+        existing_item_id: suggestion.existing_item_id || undefined,
+        update_fields:
+          suggestion.update_fields && Object.keys(suggestion.update_fields).length > 0
+            ? suggestion.update_fields
+            : undefined,
+        comment: suggestion.comment || undefined,
+      });
+      setTaskSuggestions((prev) => prev.filter((_, i) => i !== index));
+      setFlash(`Task ${suggestion.action === "create" ? "created" : suggestion.action === "update" ? "updated" : suggestion.action === "close" ? "closed" : "commented"} successfully.`);
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      setApplyingIndex(null);
+    }
+  }
+
+  function handleRejectSuggestion(index: number) {
+    setTaskSuggestions((prev) => prev.filter((_, i) => i !== index));
   }
 
   const activeUser = users.find((user) => user.user_id === activeTargetId);
@@ -382,6 +461,20 @@ export default function ChatPage() {
     const others = Math.max(0, activeGroup.member_count - (activeGroup.joined ? 1 : 0));
     return Math.max(0, others - groupAvatarLabels.length);
   }, [activeGroup, chatMode, groupAvatarLabels.length]);
+
+  if (!mounted || sessionStatus === "loading") {
+    return (
+      <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground" />
+    );
+  }
+
+  if (!authed) {
+    return (
+      <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
+        Redirecting to sign in…
+      </main>
+    );
+  }
 
   function formatTime(value: string) {
     const date = new Date(value);
@@ -450,10 +543,10 @@ export default function ChatPage() {
           onClick={() => setInfoPanelOpen(false)}
         />
       ) : null}
-      <section className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col overflow-y-auto overflow-x-hidden border-r border-black/5 bg-[#f7f7f7] p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-xl font-semibold tracking-tight">Chats</h2>
+      <section className="grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden bg-transparent md:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col overflow-y-auto overflow-x-hidden border-r border-black/5 bg-[#f7f7f7] px-3 py-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-base font-semibold tracking-tight">Chats</h2>
             <button className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => void refreshGroups()} type="button">
               Refresh
             </button>
@@ -462,7 +555,7 @@ export default function ChatPage() {
           <input
             ref={listSearchInputRef}
             id="chat-list-search"
-            className="mb-3 h-10 w-full rounded-xl border border-black/10 bg-white px-3 text-sm"
+            className="mb-2 h-8 w-full rounded-lg border border-black/10 bg-white px-2 text-xs"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search projects/groups"
@@ -527,11 +620,11 @@ export default function ChatPage() {
           <div className="mb-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Direct</p>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-0.5">
             {users.map((user) => (
               <button
                 key={user.user_id}
-                className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition ${
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${
                   chatMode === "dm" && activeTargetId === user.user_id
                     ? "bg-[#ececec]"
                     : "hover:bg-[#efefef]"
@@ -539,26 +632,26 @@ export default function ChatPage() {
                 type="button"
                 onClick={() => void loadMessages(user.user_id, "dm")}
               >
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-white text-xs font-semibold text-muted-foreground">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[10px] font-semibold text-muted-foreground">
                   {initials(user.display_name)}
                 </span>
-                <span className="truncate text-sm font-medium">{user.display_name}</span>
+                <span className="truncate text-xs font-medium">{user.display_name}</span>
               </button>
             ))}
           </div>
 
-          <div className="mb-2 mt-4 flex items-center justify-between">
+          <div className="mb-1 mt-3 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Groups</p>
             <button className={buttonVariants({ variant: "outline", size: "xs" })} type="button" onClick={() => void refreshGroups()}>
               Sync
             </button>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-0.5">
             {groups.map((group) => (
-              <div key={group.group_id} className={`rounded-xl px-2 py-2 ${chatMode === "group" && activeTargetId === group.group_id ? "bg-[#ececec]" : "hover:bg-[#efefef]"}`}>
+              <div key={group.group_id} className={`rounded-lg px-2 py-1.5 ${chatMode === "group" && activeTargetId === group.group_id ? "bg-[#ececec]" : "hover:bg-[#efefef]"}`}>
                 <button className="flex w-full items-center justify-between text-left" type="button" onClick={() => void loadMessages(group.group_id, "group")}>
-                  <span className="truncate pr-2 text-sm font-medium">{group.name}</span>
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-muted-foreground">{group.member_count}</span>
+                  <span className="truncate pr-2 text-xs font-medium">{group.name}</span>
+                  <span className="rounded-full bg-white px-1.5 py-0.5 text-[9px] text-muted-foreground">{group.member_count}</span>
                 </button>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {!group.joined && !group.pending ? (
@@ -663,6 +756,16 @@ export default function ChatPage() {
               >
                 <Search className="h-4 w-4" />
                 <span>Search</span>
+              </button>
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#7c3aed] bg-[#ede9fe] px-4 text-sm font-semibold text-[#5b21b6] shadow-sm transition hover:bg-[#ddd6fe] disabled:opacity-50"
+                type="button"
+                onClick={() => void triggerTaskExtraction(true)}
+                disabled={!activeTargetId || isAnalyzingTasks}
+                aria-label="Analyze tasks from chat"
+              >
+                <ListTodo className="h-4 w-4" />
+                <span>{isAnalyzingTasks ? "Analyzing…" : "Analyze Tasks"}</span>
               </button>
               <button
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#1b2c53] bg-[#1f3566] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#172b58]"
@@ -771,33 +874,113 @@ export default function ChatPage() {
             )}
           </div>
 
-          <footer className="border-t border-black/5 bg-white px-4 py-3">
-            {flash ? <p className="mb-2 text-xs text-muted-foreground">{flash}</p> : null}
+          <footer className="shrink-0 border-t border-black/5 bg-white">
+            {taskPanelOpen && taskSuggestions.length > 0 ? (
+              <div className="max-h-48 overflow-y-auto border-b border-purple-200 bg-purple-50 px-4 py-2">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-purple-900">
+                    <ListTodo className="h-3.5 w-3.5 shrink-0" />
+                    Task Suggestions ({taskSuggestions.length})
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 text-[10px] text-purple-800 underline underline-offset-2 hover:text-purple-950"
+                    onClick={() => { setTaskPanelOpen(false); setTaskSuggestions([]); }}
+                  >
+                    Dismiss All
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {taskSuggestions.map((suggestion, idx) => (
+                    <div
+                      key={`${suggestion.action}-${suggestion.title || suggestion.existing_item_id}-${idx}`}
+                      className="rounded-lg border border-purple-200 bg-white p-2"
+                    >
+                      <div className="mb-0.5 flex items-center gap-2">
+                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                          suggestion.action === "create"
+                            ? "bg-green-100 text-green-800"
+                            : suggestion.action === "update"
+                              ? "bg-amber-100 text-amber-800"
+                              : suggestion.action === "close"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-blue-100 text-blue-800"
+                        }`}>
+                          {suggestion.action.toUpperCase()}
+                        </span>
+                        {suggestion.title ? (
+                          <span className="text-xs font-medium text-[#222]">{suggestion.title}</span>
+                        ) : null}
+                        {suggestion.existing_item_id ? (
+                          <span className="text-[9px] text-muted-foreground">Item: {suggestion.existing_item_id}</span>
+                        ) : null}
+                      </div>
+                      {suggestion.description ? (
+                        <p className="mb-0.5 text-[11px] text-[#555]">{suggestion.description}</p>
+                      ) : null}
+                      {suggestion.comment ? (
+                        <p className="mb-0.5 text-[11px] italic text-[#555]">&ldquo;{suggestion.comment}&rdquo;</p>
+                      ) : null}
+                      {suggestion.reasoning ? (
+                        <p className="mb-1 text-[9px] text-muted-foreground">{suggestion.reasoning}</p>
+                      ) : null}
+                      {suggestion.owner || suggestion.priority ? (
+                        <div className="mb-1 flex items-center gap-2 text-[9px] text-muted-foreground">
+                          {suggestion.owner ? <span>Owner: {suggestion.owner}</span> : null}
+                          {suggestion.priority ? <span>Priority: {suggestion.priority}</span> : null}
+                        </div>
+                      ) : null}
+                      {suggestion.update_fields && Object.keys(suggestion.update_fields).length > 0 ? (
+                        <div className="mb-1 text-[9px] text-muted-foreground">
+                          Updates: {Object.entries(suggestion.update_fields).map(([k, v]) => `${k}→${v}`).join(", ")}
+                        </div>
+                      ) : null}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="rounded-md bg-purple-600 px-2.5 py-0.5 text-[10px] font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
+                          onClick={() => void handleAcceptSuggestion(idx)}
+                          disabled={applyingIndex === idx}
+                        >
+                          {applyingIndex === idx ? "Applying…" : "Accept"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-black/10 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-[#333] transition hover:bg-black/5"
+                          onClick={() => handleRejectSuggestion(idx)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="px-4 py-2">
+            {flash ? <p className="mb-1 text-[11px] text-muted-foreground">{flash}</p> : null}
             {askAiBusy ? (
-              <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <p className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 animate-pulse" />
                 Asking AI using this chat as context…
               </p>
             ) : null}
             {aiReply ? (
-              <div className="mb-3 rounded-xl border border-indigo-200/90 bg-indigo-50 px-4 py-3 text-indigo-950 shadow-sm">
+              <div className="mb-2 rounded-lg border border-indigo-200/90 bg-indigo-50 px-3 py-2 text-indigo-950 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-indigo-900">
-                    <Sparkles className="h-4 w-4 shrink-0" />
+                  <div className="flex items-center gap-2 text-[11px] font-semibold text-indigo-900">
+                    <Sparkles className="h-3.5 w-3.5 shrink-0" />
                     Chat AI
                   </div>
                   <button
                     type="button"
-                    className="shrink-0 text-[11px] text-indigo-800 underline underline-offset-2 hover:text-indigo-950"
+                    className="shrink-0 text-[10px] text-indigo-800 underline underline-offset-2 hover:text-indigo-950"
                     onClick={() => setAiReply(null)}
                   >
                     Dismiss
                   </button>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{aiReply.content}</p>
-                <p className="mt-2 text-[10px] text-indigo-900/75">
-                  Uses only this chat&apos;s history. Say so if nothing relevant appears in the messages.
-                </p>
+                <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed">{aiReply.content}</p>
               </div>
             ) : null}
             {composerFiles.length > 0 ? (
@@ -894,6 +1077,7 @@ export default function ChatPage() {
               >
                 <SendHorizontal className="h-4 w-4" />
               </button>
+            </div>
             </div>
           </footer>
         </section>
@@ -1041,12 +1225,23 @@ export default function ChatPage() {
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">AI features</p>
             <ul className="space-y-2">
-              <li className="flex items-start gap-2 rounded-xl border border-black/5 bg-[#fafafa] px-3 py-2.5 text-xs text-[#333]">
-                <ListTodo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <span>
-                  <span className="font-medium">Auto task identify</span>
-                  <span className="mt-0.5 block text-[11px] text-muted-foreground">Surface action items from this thread.</span>
-                </span>
+              <li>
+                <button
+                  type="button"
+                  className="flex w-full items-start gap-2 rounded-xl border border-black/5 bg-[#fafafa] px-3 py-2.5 text-left text-xs text-[#333] transition hover:bg-purple-50 disabled:opacity-50"
+                  onClick={() => void triggerTaskExtraction(true)}
+                  disabled={!activeTargetId || isAnalyzingTasks}
+                >
+                  <ListTodo className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
+                  <span>
+                    <span className="font-medium">{isAnalyzingTasks ? "Analyzing tasks…" : "Auto task identify"}</span>
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      {taskSuggestions.length > 0
+                        ? `${taskSuggestions.length} suggestion(s) found`
+                        : "Surface action items from this thread."}
+                    </span>
+                  </span>
+                </button>
               </li>
               <li className="flex items-start gap-2 rounded-xl border border-black/5 bg-[#fafafa] px-3 py-2.5 text-xs text-[#333]">
                 <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
