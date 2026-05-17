@@ -3,6 +3,12 @@ import re
 from pathlib import Path
 from time import perf_counter
 
+from backend.app.debug_runtime import agent_log
+
+# #region agent log
+agent_log("main.py:pre-import", "main module import begin", hypothesis_id="H2")
+# #endregion
+
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +23,15 @@ from backend.app.persistence.db import get_engine
 from backend.app.persistence.models import Base
 
 load_app_env()
+
+# #region agent log
+agent_log(
+    "main.py:post-import",
+    "core imports finished",
+    {"has_database_url": bool(os.environ.get("DATABASE_URL", "").strip())},
+    hypothesis_id="H2",
+)
+# #endregion
 
 
 def _cors_allow_origins() -> list[str]:
@@ -82,6 +97,15 @@ _api_log_path.parent.mkdir(parents=True, exist_ok=True)
 
 _upload_dir = _upload_root()
 
+# #region agent log
+agent_log(
+    "main.py:paths",
+    "upload root ready",
+    {"upload_root": str(_upload_dir), "port": os.environ.get("PORT", "")},
+    hypothesis_id="H3",
+)
+# #endregion
+
 _cors_regex = _cors_allow_origin_regex()
 app.add_middleware(
     CORSMiddleware,
@@ -103,8 +127,14 @@ app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
 
 @app.on_event("startup")
 def on_startup() -> None:
+    # #region agent log
+    agent_log("main.py:on_startup", "startup hook begin", hypothesis_id="H4")
+    # #endregion
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+    # #region agent log
+    agent_log("main.py:on_startup", "startup hook finished", hypothesis_id="H4")
+    # #endregion
 
 
 @app.middleware("http")
