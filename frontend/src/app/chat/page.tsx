@@ -139,9 +139,6 @@ export default function ChatPage() {
     const user = getAuthUser();
     setCurrentUserId(user?.user_id ?? "");
     setMounted(true);
-    // #region agent log
-    fetch('http://127.0.0.1:7553/ingest/2aaf215a-59bb-4324-b6c8-8d70311bfd61',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'901f7a'},body:JSON.stringify({sessionId:'901f7a',location:'chat/page.tsx:mount-effect',message:'mount effect ran',data:{hasToken:!!t,userId:user?.user_id??''},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (!t) {
       router.replace(loginPathWithReason("login_required"));
     }
@@ -381,21 +378,23 @@ export default function ChatPage() {
     const suggestion = taskSuggestions[index];
     if (!suggestion) return;
     setApplyingIndex(index);
-    // #region agent log
-    const _payload = {action:suggestion.action,title:suggestion.title||undefined,description:suggestion.description||undefined,owner:suggestion.owner||undefined,priority:suggestion.priority||undefined,existing_item_id:suggestion.existing_item_id||undefined,update_fields:suggestion.update_fields&&Object.keys(suggestion.update_fields).length>0?suggestion.update_fields:undefined,comment:suggestion.comment||undefined};
-    fetch('http://127.0.0.1:7553/ingest/2aaf215a-59bb-4324-b6c8-8d70311bfd61',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'901f7a'},body:JSON.stringify({sessionId:'901f7a',location:'chat/page.tsx:handleAcceptSuggestion',message:'accept called',data:{index,hasToken:!!token,payload:_payload},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     try {
-      await applyTaskAction(token, _payload);
-      // #region agent log
-      fetch('http://127.0.0.1:7553/ingest/2aaf215a-59bb-4324-b6c8-8d70311bfd61',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'901f7a'},body:JSON.stringify({sessionId:'901f7a',location:'chat/page.tsx:handleAcceptSuggestion:success',message:'apply succeeded',data:{index,action:suggestion.action},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
+      await applyTaskAction(token, {
+        action: suggestion.action,
+        title: suggestion.title || undefined,
+        description: suggestion.description || undefined,
+        owner: suggestion.owner || undefined,
+        priority: suggestion.priority || undefined,
+        existing_item_id: suggestion.existing_item_id || undefined,
+        update_fields:
+          suggestion.update_fields && Object.keys(suggestion.update_fields).length > 0
+            ? suggestion.update_fields
+            : undefined,
+        comment: suggestion.comment || undefined,
+      });
       setTaskSuggestions((prev) => prev.filter((_, i) => i !== index));
       setFlash(`Task ${suggestion.action === "create" ? "created" : suggestion.action === "update" ? "updated" : suggestion.action === "close" ? "closed" : "commented"} successfully.`);
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7553/ingest/2aaf215a-59bb-4324-b6c8-8d70311bfd61',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'901f7a'},body:JSON.stringify({sessionId:'901f7a',location:'chat/page.tsx:handleAcceptSuggestion:error',message:'apply failed',data:{index,errMsg:error instanceof Error?error.message:String(error)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       handleApiError(error);
     } finally {
       setApplyingIndex(null);
@@ -442,9 +441,6 @@ export default function ChatPage() {
     return Math.max(0, others - groupAvatarLabels.length);
   }, [activeGroup, chatMode, groupAvatarLabels.length]);
 
-  // #region agent log
-  if (typeof window !== 'undefined') { fetch('http://127.0.0.1:7553/ingest/2aaf215a-59bb-4324-b6c8-8d70311bfd61',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'901f7a'},body:JSON.stringify({sessionId:'901f7a',location:'chat/page.tsx:render-guard',message:'render guard check',data:{mounted,hasToken:!!token},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{}); }
-  // #endregion
   if (!mounted || !token) {
     return (
       <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
