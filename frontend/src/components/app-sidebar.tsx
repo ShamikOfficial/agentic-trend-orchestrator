@@ -9,8 +9,11 @@ import {
   LogOut,
   MessageCircle,
   Settings,
+  Sparkles,
   Upload,
 } from "lucide-react";
+import { signOut } from "next-auth/react";
+import { clearBearerCache } from "@/lib/auth-session";
 import { clearAuthToken } from "@/lib/auth-store";
 import { loginPathWithReason } from "@/lib/auth-redirect";
 
@@ -26,6 +29,12 @@ const nav = [
     label: "Script Generation",
     Icon: FileText,
     activeFor: ["/app", "/app/brief", "/app/editor", "/app/variations", "/app/storyboard", "/app/save"],
+  },
+  {
+    href: "/app/trend-detection",
+    label: "Trend Detection",
+    Icon: Sparkles,
+    activeFor: ["/app/trend-detection"],
   },
   {
     href: "/app/upload",
@@ -53,6 +62,8 @@ export function AppSidebar() {
 
   function handleLogout() {
     clearAuthToken();
+    clearBearerCache();
+    void signOut({ callbackUrl: loginPathWithReason("logged_out") });
     window.dispatchEvent(new Event("auth-changed"));
     router.replace(loginPathWithReason("logged_out"));
   }

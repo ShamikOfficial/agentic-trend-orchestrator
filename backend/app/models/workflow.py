@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 
 WorkflowStage = Literal["Idea", "Brief", "Production", "Review", "Publish"]
+VALID_WORKFLOW_STAGES: set[str] = {"Idea", "Brief", "Production", "Review", "Publish"}
 MilestoneStatus = Literal["open", "in_progress", "completed", "blocked"]
 
 

@@ -98,7 +98,10 @@ function parseChatAiIntent(text: string): { isAskAi: boolean; question: string |
 
 export default function ChatPage() {
   const router = useRouter();
+<<<<<<< HEAD
   const { status: sessionStatus } = useSession();
+=======
+>>>>>>> ddac349adb2110e46d63a762627bd1da97aaca16
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
@@ -135,6 +138,7 @@ export default function ChatPage() {
   const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
   const [applyingIndex, setApplyingIndex] = useState<number | null>(null);
+<<<<<<< HEAD
 
   const authed = sessionStatus === "authenticated" || Boolean(token);
   const apiAuth = token || undefined;
@@ -162,9 +166,25 @@ export default function ChatPage() {
   useEffect(() => {
     if (!mounted || sessionStatus === "loading") return;
     if (!authed) {
+=======
+
+  useEffect(() => {
+    const t = getAuthToken();
+    setToken(t);
+    const user = getAuthUser();
+    setCurrentUserId(user?.user_id ?? "");
+    setMounted(true);
+    if (!t) {
+>>>>>>> ddac349adb2110e46d63a762627bd1da97aaca16
       router.replace(loginPathWithReason("login_required"));
     }
   }, [mounted, sessionStatus, authed, router]);
+
+  useEffect(() => {
+    setAiReply(null);
+    setTaskSuggestions([]);
+    setTaskPanelOpen(false);
+  }, [activeTargetId, chatMode]);
 
   useEffect(() => {
     setAiReply(null);
@@ -375,7 +395,11 @@ export default function ChatPage() {
     if (!activeTargetId || isAnalyzingTasks) return;
     setIsAnalyzingTasks(true);
     try {
+<<<<<<< HEAD
       const result = await extractChatTasks(apiAuth, {
+=======
+      const result = await extractChatTasks(token, {
+>>>>>>> ddac349adb2110e46d63a762627bd1da97aaca16
         chat_type: chatMode,
         target_id: activeTargetId,
         force,
@@ -400,7 +424,11 @@ export default function ChatPage() {
     if (!suggestion) return;
     setApplyingIndex(index);
     try {
+<<<<<<< HEAD
       await applyTaskAction(apiAuth, {
+=======
+      await applyTaskAction(token, {
+>>>>>>> ddac349adb2110e46d63a762627bd1da97aaca16
         action: suggestion.action,
         title: suggestion.title || undefined,
         description: suggestion.description || undefined,
@@ -462,6 +490,7 @@ export default function ChatPage() {
     return Math.max(0, others - groupAvatarLabels.length);
   }, [activeGroup, chatMode, groupAvatarLabels.length]);
 
+<<<<<<< HEAD
   if (!mounted || sessionStatus === "loading") {
     return (
       <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground" />
@@ -472,6 +501,12 @@ export default function ChatPage() {
     return (
       <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
         Redirecting to sign in…
+=======
+  if (!mounted || !token) {
+    return (
+      <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
+        {mounted ? "Redirecting to sign in…" : ""}
+>>>>>>> ddac349adb2110e46d63a762627bd1da97aaca16
       </main>
     );
   }

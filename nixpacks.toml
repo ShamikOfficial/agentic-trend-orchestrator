@@ -1,0 +1,6 @@
+# Pin API-only install to reduce image size / OOM on small Railway plans.
+[phases.install]
+cmds = ["pip install -r requirements-api.txt"]
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.12"
