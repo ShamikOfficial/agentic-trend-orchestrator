@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthGate } from "@/components/auth-gate";
+import { AppSessionProvider } from "@/components/session-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,7 +31,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body suppressHydrationWarning className="flex min-h-screen flex-col bg-background">
-        <AuthGate>{children}</AuthGate>
+        <AppSessionProvider>
+          <AuthGate>{children}</AuthGate>
+        </AppSessionProvider>
       </body>
     </html>
   );

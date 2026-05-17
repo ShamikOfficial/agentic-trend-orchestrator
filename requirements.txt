@@ -4,6 +4,11 @@ uvicorn
 python-multipart
 pydantic
 python-dotenv
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+alembic>=1.13
+pyjwt[crypto]>=2.8
+passlib[bcrypt]>=1.7.4
 pytest
 jupyter
 

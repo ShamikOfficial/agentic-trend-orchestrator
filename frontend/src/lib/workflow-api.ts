@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/api-client";
 import type {
+  AddWorkflowCommentResponse,
   CreateWorkflowItemRequest,
   CreateWorkflowItemResponse,
   DeleteWorkflowItemResponse,
@@ -46,6 +47,16 @@ export function updateWorkflowItem(itemId: string, payload: UpdateWorkflowItemRe
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export function addWorkflowComment(itemId: string, text: string) {
+  return apiRequest<AddWorkflowCommentResponse>(
+    `/workflow/items/${itemId}/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    },
+  );
 }
 
 export function deleteWorkflowItem(itemId: string) {

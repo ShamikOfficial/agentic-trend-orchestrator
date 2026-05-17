@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -11,8 +12,18 @@ from backend.app.services import trend_analytics_service
 router = APIRouter()
 
 _allowed_extensions = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
-_trend_uploads = Path("backend/trend_analytics/videos")
+_trend_root = Path(os.environ.get("TREND_VIDEO_ROOT", "backend/trend_analytics/videos"))
+_trend_uploads = _trend_root
 _trend_uploads.mkdir(parents=True, exist_ok=True)
+
+
+def _trend_enabled() -> bool:
+    return os.getenv("TREND_ANALYTICS_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+
+
+def _require_trend_enabled() -> None:
+    if not _trend_enabled():
+        raise HTTPException(status_code=503, detail="Trend analytics is disabled in this environment.")
 
 
 def _safe_upload_stem(filename: str) -> str:
@@ -59,6 +70,7 @@ async def upload_and_ingest_video(
     platform: str = Form(default="upload"),
     prompt: str | None = Form(default=None),
 ) -> UploadTrendVideoResponse:
+    _require_trend_enabled()
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in _allowed_extensions:
         raise HTTPException(
@@ -106,6 +118,7 @@ async def upload_and_ingest_video(
 
 @router.get("/trend/clusters", response_model=TrendClustersResponse)
 async def get_trend_clusters(niche: str) -> TrendClustersResponse:
+    _require_trend_enabled()
     cleaned_niche = niche.strip()
     if not cleaned_niche:
         raise HTTPException(status_code=400, detail="niche is required")

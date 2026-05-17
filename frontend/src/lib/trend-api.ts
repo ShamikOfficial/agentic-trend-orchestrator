@@ -1,11 +1,7 @@
 import { ChatApiError } from "@/lib/chat-api";
+import { resolveApiAuthHeaders } from "@/lib/auth-session";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
-
-function readToken() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem("ato_auth_token") ?? "";
-}
 
 export type TrendUploadResponse = {
   file_id: string;
@@ -59,7 +55,7 @@ export async function uploadTrendVideo(file: File, options?: { platform?: string
   const response = await fetch(`${API_BASE_URL}/trend/upload`, {
     method: "POST",
     body: formData,
-    headers: readToken() ? { "x-auth-token": readToken() } : undefined,
+    headers: await resolveApiAuthHeaders(),
   });
   const payload = await response.json();
   if (!response.ok) {
@@ -75,7 +71,7 @@ export async function getTrendClusters(niche: string) {
     );
   }
   const response = await fetch(`${API_BASE_URL}/trend/clusters?niche=${encodeURIComponent(niche.trim())}`, {
-    headers: readToken() ? { "x-auth-token": readToken() } : undefined,
+    headers: await resolveApiAuthHeaders(),
   });
   const payload = await response.json();
   if (!response.ok) {

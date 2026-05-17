@@ -1,9 +1,6 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-function readToken() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem("ato_auth_token") ?? "";
-}
+import { resolveApiAuthHeaders } from "@/lib/auth-session";
 
 export class ApiError extends Error {
   constructor(
@@ -27,13 +24,15 @@ export async function apiRequest<TResponse>(
     );
   }
 
+  const authHeaders = await resolveApiAuthHeaders();
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
-        ...(readToken() ? { "x-auth-token": readToken() } : {}),
+        ...authHeaders,
         ...(init?.headers ?? {}),
       },
       cache: "no-store",

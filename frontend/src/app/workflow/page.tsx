@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  addWorkflowComment,
   createWorkflowItem,
   listWorkflowActivityLogs,
   listWorkflowItems,
@@ -92,6 +93,8 @@ export default function WorkflowPage() {
   const [dragOverColumn, setDragOverColumn] = useState<UiColumn | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [flashMessage, setFlashMessage] = useState("");
+  const [commentText, setCommentText] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
 
   async function refreshItems() {
     const response = await listWorkflowItems();
@@ -152,6 +155,7 @@ export default function WorkflowPage() {
   useEffect(() => {
     if (selectedItem) {
       setDetailTargetStage(selectedItem.stage);
+      setCommentText("");
     }
   }, [selectedItem]);
 
@@ -227,6 +231,22 @@ export default function WorkflowPage() {
       setFlashMessage(`Create failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsBusy(false);
+    }
+  }
+
+  async function handleAddComment(itemId: string) {
+    const text = commentText.trim();
+    if (!text) return;
+    setCommentBusy(true);
+    try {
+      await addWorkflowComment(itemId, text);
+      setCommentText("");
+      await Promise.all([refreshItems(), refreshLogs()]);
+      setFlashMessage("Comment added.");
+    } catch (error) {
+      setFlashMessage(`Comment failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setCommentBusy(false);
     }
   }
 
@@ -433,6 +453,46 @@ export default function WorkflowPage() {
                 <div className="flex items-center gap-1.5 rounded-lg bg-[#fef3c7] px-2 py-1">
                   <BarChart2 size={11} className="text-[#d97706]" />
                   <span className="text-[11px] font-semibold text-[#d97706]">Current stage: {selectedItem.stage}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-[#f3f4f6] pt-3">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <MessageSquare size={12} className="text-[#6a7282]" />
+                  <span className="text-[11px] font-semibold text-[#6a7282]">Comments ({selectedItem.comments?.length ?? 0})</span>
+                </div>
+                {selectedItem.comments && selectedItem.comments.length > 0 ? (
+                  <div className="mb-2 max-h-28 space-y-1.5 overflow-y-auto">
+                    {selectedItem.comments.map((c, i) => (
+                      <div key={i} className="rounded-lg bg-[#f9fafb] px-2.5 py-1.5 text-[11px] leading-relaxed text-[#364153]">
+                        {c}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mb-2 text-[11px] text-[#9a9ea6]">No comments yet.</p>
+                )}
+                <div className="flex gap-1.5">
+                  <input
+                    className="h-7 flex-1 rounded-lg border border-[#e5e7eb] px-2 text-[11px] text-[#101828] placeholder:text-[#9a9ea6]"
+                    placeholder="Add a comment…"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleAddComment(selectedItem.item_id);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={commentBusy || !commentText.trim()}
+                    onClick={() => void handleAddComment(selectedItem.item_id)}
+                    className="rounded-lg bg-[#101828] px-2.5 text-[10px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {commentBusy ? "…" : "Add"}
+                  </button>
                 </div>
               </div>
 

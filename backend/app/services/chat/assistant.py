@@ -9,7 +9,7 @@ Uses the same stack as Team Assistant: `generate_text` + `load_llm_config()` —
 from __future__ import annotations
 
 from backend.app import auth_state
-from backend.app.llm import LlmError, generate_text, load_llm_config
+from backend.app.llm import LlmError, generate_text, generate_text_guarded, load_llm_config
 
 _MAX_TRANSCRIPT_CHARS = 56_000
 
@@ -47,7 +47,7 @@ def format_transcript(messages: list[dict]) -> str:
     return text
 
 
-def answer_from_transcript(transcript: str, question: str) -> str:
+def answer_from_transcript(transcript: str, question: str, *, user_id: str | None = None) -> str:
     q = question.strip()
     if not q:
         raise LlmError("Question is empty.")
@@ -61,6 +61,15 @@ def answer_from_transcript(transcript: str, question: str) -> str:
         "Answer using only the transcript above. If it does not support an answer, say you found nothing relevant in this chat."
     )
     cfg = load_llm_config()
+    if user_id:
+        return generate_text_guarded(
+            user_id,
+            "chat",
+            user_prompt,
+            system_prompt=CHAT_ASK_AI_SYSTEM,
+            config=cfg,
+            response_mime_json=False,
+        )
     return generate_text(
         user_prompt,
         system_prompt=CHAT_ASK_AI_SYSTEM,

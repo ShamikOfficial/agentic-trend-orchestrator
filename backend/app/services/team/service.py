@@ -7,7 +7,7 @@ import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
-from backend.app.llm import LlmError, generate_text
+from backend.app.llm import LlmError, generate_text, generate_text_guarded
 from backend.app.llm.prompts import TEAM_UNIFIED_PROCESS_PROMPT
 from backend.app.models.team import Reminder, Task, TeamSummary
 
@@ -22,6 +22,7 @@ def process_input_unified(
     title: str | None = None,
     owner_candidates: list[str] | None = None,
     default_due_days: int = 3,
+    user_id: str | None = None,
 ) -> tuple[str, str, TeamSummary, list[Task]]:
     owners = owner_candidates or []
     prompt = TEAM_UNIFIED_PROCESS_PROMPT.render(
@@ -33,11 +34,20 @@ def process_input_unified(
         f"content_chars={len(content)} owner_candidates={len(owners)}"
     )
     try:
-        raw = generate_text(
-            prompt,
-            system_prompt=TEAM_UNIFIED_PROCESS_PROMPT.system,
-            response_mime_json=True,
-        )
+        if user_id:
+            raw = generate_text_guarded(
+                user_id,
+                "team",
+                prompt,
+                system_prompt=TEAM_UNIFIED_PROCESS_PROMPT.system,
+                response_mime_json=True,
+            )
+        else:
+            raw = generate_text(
+                prompt,
+                system_prompt=TEAM_UNIFIED_PROCESS_PROMPT.system,
+                response_mime_json=True,
+            )
         print(f"[team-debug] llm_raw_preview={raw[:500]!r}")
         data = _extract_json(raw)
         print(

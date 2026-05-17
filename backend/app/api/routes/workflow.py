@@ -1,19 +1,15 @@
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from backend.app.api.deps import current_user_id
 from backend.app.models.workflow import Milestone, MilestoneStatus, WorkflowItem, WorkflowStage
+from backend.app.persistence import workflow_repo
 from backend.app.services.workflow import service
 
 router = APIRouter()
-
-_workflow_items: dict[str, WorkflowItem] = {}
-_milestones: dict[str, Milestone] = {}
-_workflow_activity_logs: list[dict] = []
-_uploads_dir = Path("uploads")
-_uploads_dir.mkdir(parents=True, exist_ok=True)
 
 
 class CreateWorkflowItemRequest(BaseModel):
@@ -76,6 +72,16 @@ class UploadAttachmentResponse(BaseModel):
     url: str
 
 
+class AddCommentRequest(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class AddCommentResponse(BaseModel):
+    item_id: str
+    comment_index: int
+    total_comments: int
+
+
 class CreateMilestoneRequest(BaseModel):
     item_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -97,20 +103,20 @@ def _append_activity(
     item_id: str | None = None,
     item_title: str | None = None,
 ) -> None:
-    _workflow_activity_logs.insert(
-        0,
+    workflow_repo.prepend_activity(
         WorkflowActivityLog(
             log_id=service._make_id("log"),
             action=action,
             item_id=item_id,
             item_title=item_title,
             details=details,
-        ).model_dump(),
+        ).model_dump(mode="json")
     )
 
 
 @router.post("/workflow/items")
-def create_workflow_item(payload: CreateWorkflowItemRequest) -> dict:
+def create_workflow_item(payload: CreateWorkflowItemRequest, request: Request) -> dict:
+    current_user_id(request)
     item = service.create_workflow_item(
         title=payload.title,
         description=payload.description,
@@ -123,7 +129,7 @@ def create_workflow_item(payload: CreateWorkflowItemRequest) -> dict:
         links=payload.links,
         attachments=payload.attachments,
     )
-    _workflow_items[item.item_id] = item
+    workflow_repo.save_workflow_item(item)
     _append_activity(
         action="create_item",
         details=f"Created item in {item.stage}",
@@ -134,36 +140,54 @@ def create_workflow_item(payload: CreateWorkflowItemRequest) -> dict:
 
 
 @router.post("/workflow/uploads")
-async def upload_workflow_attachment(file: UploadFile = File(...)) -> UploadAttachmentResponse:
+async def upload_workflow_attachment(
+    request: Request,
+    file: UploadFile = File(...),
+) -> UploadAttachmentResponse:
+    user_id = current_user_id(request)
     extension = Path(file.filename or "").suffix
-    saved_name = f"{service._make_id('att')}{extension}"
-    destination = _uploads_dir / saved_name
+    asset_id = service._make_id("att")
+    saved_name = f"{asset_id}{extension}"
+    destination = workflow_repo.upload_root() / saved_name
     content = await file.read()
     destination.write_bytes(content)
+    workflow_repo.register_file_asset(
+        asset_id,
+        owner_id=user_id,
+        path=str(destination),
+        mime=file.content_type,
+        size=len(content),
+    )
     return UploadAttachmentResponse(name=file.filename or saved_name, url=f"/uploads/{saved_name}")
 
 
 @router.get("/workflow/items")
-def list_workflow_items() -> ListWorkflowItemsResponse:
-    return ListWorkflowItemsResponse(items=list(_workflow_items.values()))
+def list_workflow_items(request: Request) -> ListWorkflowItemsResponse:
+    current_user_id(request)
+    return ListWorkflowItemsResponse(items=workflow_repo.list_workflow_items())
 
 
 @router.get("/workflow/items/{item_id}")
-def get_workflow_item(item_id: str) -> WorkflowItem:
-    item = _workflow_items.get(item_id)
+def get_workflow_item(item_id: str, request: Request) -> WorkflowItem:
+    current_user_id(request)
+    item = workflow_repo.get_workflow_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail=f"Workflow item not found: {item_id}")
     return item
 
 
 @router.get("/workflow/logs")
-def list_workflow_logs() -> ListWorkflowActivityResponse:
-    return ListWorkflowActivityResponse(items=[WorkflowActivityLog(**row) for row in _workflow_activity_logs])
+def list_workflow_logs(request: Request) -> ListWorkflowActivityResponse:
+    current_user_id(request)
+    return ListWorkflowActivityResponse(
+        items=[WorkflowActivityLog(**row) for row in workflow_repo.list_activity_logs()]
+    )
 
 
 @router.patch("/workflow/items/{item_id}")
-def update_workflow_item(item_id: str, payload: UpdateWorkflowItemRequest) -> dict:
-    existing = _workflow_items.get(item_id)
+def update_workflow_item(item_id: str, payload: UpdateWorkflowItemRequest, request: Request) -> dict:
+    current_user_id(request)
+    existing = workflow_repo.get_workflow_item(item_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Workflow item not found: {item_id}")
 
@@ -171,7 +195,7 @@ def update_workflow_item(item_id: str, payload: UpdateWorkflowItemRequest) -> di
     updates = payload.model_dump(exclude_none=True)
     data.update(updates)
     updated = WorkflowItem(**data)
-    _workflow_items[item_id] = updated
+    workflow_repo.save_workflow_item(updated)
     _append_activity(
         action="update_item",
         details="Updated workflow item fields",
@@ -181,15 +205,41 @@ def update_workflow_item(item_id: str, payload: UpdateWorkflowItemRequest) -> di
     return {"item_id": item_id, "updated": True}
 
 
+@router.post("/workflow/items/{item_id}/comments")
+def add_workflow_comment(item_id: str, payload: AddCommentRequest, request: Request) -> AddCommentResponse:
+    current_user_id(request)
+    existing = workflow_repo.get_workflow_item(item_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Workflow item not found: {item_id}")
+
+    data = existing.model_dump()
+    comments = list(data.get("comments", []))
+    comments.append(payload.text)
+    data["comments"] = comments
+    data["updated_at"] = datetime.now(UTC)
+    updated = WorkflowItem(**data)
+    workflow_repo.save_workflow_item(updated)
+
+    _append_activity(
+        action="add_comment",
+        details=f"Comment: {payload.text[:80]}",
+        item_id=item_id,
+        item_title=updated.title,
+    )
+    return AddCommentResponse(
+        item_id=item_id,
+        comment_index=len(comments) - 1,
+        total_comments=len(comments),
+    )
+
+
 @router.delete("/workflow/items/{item_id}")
-def delete_workflow_item(item_id: str) -> dict:
-    removed = _workflow_items.pop(item_id, None)
+def delete_workflow_item(item_id: str, request: Request) -> dict:
+    current_user_id(request)
+    removed = workflow_repo.delete_workflow_item(item_id)
     if removed is None:
         raise HTTPException(status_code=404, detail=f"Workflow item not found: {item_id}")
 
-    for milestone_id, milestone in list(_milestones.items()):
-        if milestone.item_id == item_id:
-            _milestones.pop(milestone_id, None)
     _append_activity(
         action="delete_item",
         details="Deleted workflow item",
@@ -200,8 +250,13 @@ def delete_workflow_item(item_id: str) -> dict:
 
 
 @router.patch("/workflow/items/{item_id}/stage")
-def update_workflow_stage(item_id: str, payload: UpdateWorkflowStageRequest) -> UpdateWorkflowStageResponse:
-    existing = _workflow_items.get(item_id)
+def update_workflow_stage(
+    item_id: str,
+    payload: UpdateWorkflowStageRequest,
+    request: Request,
+) -> UpdateWorkflowStageResponse:
+    current_user_id(request)
+    existing = workflow_repo.get_workflow_item(item_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Workflow item not found: {item_id}")
 
@@ -211,7 +266,7 @@ def update_workflow_stage(item_id: str, payload: UpdateWorkflowStageRequest) -> 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    _workflow_items[item_id] = updated
+    workflow_repo.save_workflow_item(updated)
     _append_activity(
         action="move_stage",
         details=f"Moved stage {from_stage} -> {updated.stage}",
@@ -227,8 +282,9 @@ def update_workflow_stage(item_id: str, payload: UpdateWorkflowStageRequest) -> 
 
 
 @router.post("/workflow/milestones")
-def create_milestone(payload: CreateMilestoneRequest) -> dict:
-    if payload.item_id not in _workflow_items:
+def create_milestone(payload: CreateMilestoneRequest, request: Request) -> dict:
+    current_user_id(request)
+    if workflow_repo.get_workflow_item(payload.item_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow item not found: {payload.item_id}")
 
     milestone = service.create_milestone(
@@ -238,7 +294,7 @@ def create_milestone(payload: CreateMilestoneRequest) -> dict:
         due_date=payload.due_date,
         criteria=payload.criteria,
     )
-    _milestones[milestone.milestone_id] = milestone
+    workflow_repo.save_milestone(milestone)
     _append_activity(
         action="create_milestone",
         details=f'Created milestone "{milestone.title}"',
@@ -248,13 +304,14 @@ def create_milestone(payload: CreateMilestoneRequest) -> dict:
 
 
 @router.patch("/workflow/milestones/{milestone_id}")
-def update_milestone(milestone_id: str, payload: UpdateMilestoneRequest) -> dict:
-    existing = _milestones.get(milestone_id)
+def update_milestone(milestone_id: str, payload: UpdateMilestoneRequest, request: Request) -> dict:
+    current_user_id(request)
+    existing = workflow_repo.get_milestone(milestone_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Milestone not found: {milestone_id}")
 
     updated = service.update_milestone(existing, **payload.model_dump())
-    _milestones[milestone_id] = updated
+    workflow_repo.save_milestone(updated)
     _append_activity(
         action="update_milestone",
         details="Updated milestone fields",
