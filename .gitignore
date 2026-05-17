@@ -11,6 +11,9 @@ __pycache__/
 # Jupyter notebooks
 *.ipynb
 
+# Google OAuth client downloads (never commit)
+client_secret*.json
+
 # Local environment secrets
 .env
 .env.*

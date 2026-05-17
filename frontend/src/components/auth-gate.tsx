@@ -1,10 +1,12 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useEffect, useSyncExternalStore } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { getAuthToken } from "@/lib/auth-store";
 import { loginPathWithReason } from "@/lib/auth-redirect";
+import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
 
 function subscribeAuth(onStoreChange: () => void) {
   window.addEventListener("storage", onStoreChange);
@@ -18,15 +20,30 @@ function subscribeAuth(onStoreChange: () => void) {
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const token = useSyncExternalStore(subscribeAuth, getAuthToken, () => "");
+  const legacyToken = useSyncExternalStore(subscribeAuth, getAuthToken, () => "");
+  const { status } = useSession();
+
+  const authed = status === "authenticated" || Boolean(legacyToken);
 
   useEffect(() => {
-    if (!token && pathname !== "/") {
+    if (status === "authenticated") {
+      void (async () => {
+        const bearer = await fetchBearerToken();
+        if (bearer) {
+          await syncOAuthUser(bearer);
+          window.dispatchEvent(new Event("auth-changed"));
+        }
+      })();
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (!authed && pathname !== "/") {
       router.replace(loginPathWithReason("login_required"));
     }
-  }, [pathname, router, token]);
+  }, [pathname, router, authed]);
 
-  const showShell = Boolean(token);
+  const showShell = authed;
 
   return (
     <div
