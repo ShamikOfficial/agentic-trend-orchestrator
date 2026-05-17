@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useSyncExternalStore } from "react";
 import { LoginPanel } from "@/components/login-panel";
 import { getAuthToken } from "@/lib/auth-store";
@@ -18,12 +19,21 @@ function subscribeAuth(onStoreChange: () => void) {
 
 export function HomeClient() {
   const searchParams = useSearchParams();
+  const { status } = useSession();
   const token = useSyncExternalStore(subscribeAuth, getAuthToken, () => "");
   const reason = searchParams.get("reason");
-  const bannerMessage = messageForAuthReason(reason);
-  const bannerIsError = authReasonIsError(reason);
+  const oauthError = searchParams.get("error");
+  const bannerMessage =
+    messageForAuthReason(reason) ||
+    (oauthError === "Configuration"
+      ? "OAuth is not configured on this deployment (check Vercel env vars)."
+      : oauthError
+        ? `Sign-in failed (${oauthError}). Try again or use email/password.`
+        : null);
+  const bannerIsError = authReasonIsError(reason) || Boolean(oauthError);
+  const authed = status === "authenticated" || Boolean(token);
 
-  if (!token) {
+  if (!authed) {
     return (
       <main className="flex min-h-screen w-full items-center justify-center bg-[#f5f5f5] px-4 py-8">
         <LoginPanel bannerMessage={bannerMessage} bannerIsError={bannerIsError} />

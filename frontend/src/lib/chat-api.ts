@@ -10,11 +10,14 @@ export class ChatApiError extends Error {
   }
 }
 
-function authHeaders(token: string) {
-  return {
-    "Content-Type": "application/json",
-    "x-auth-token": token,
-  };
+import { resolveApiAuthHeaders } from "@/lib/auth-session";
+
+async function buildAuthHeaders(token?: string) {
+  const base = { "Content-Type": "application/json" };
+  if (token) {
+    return { ...base, "x-auth-token": token };
+  }
+  return { ...base, ...(await resolveApiAuthHeaders()) };
 }
 
 async function parseErrorMessage(response: Response, fallback: string) {
@@ -42,8 +45,12 @@ async function requestJson(url: string, init?: RequestInit) {
     if (error instanceof ChatApiError) {
       throw error;
     }
+    const hint =
+      error instanceof Error && error.message
+        ? ` (${error.message})`
+        : "";
     throw new ChatApiError(
-      "Unable to reach backend API. Ensure Render API is reachable or set NEXT_PUBLIC_API_BASE_URL for your environment.",
+      `Unable to reach backend API.${hint} Check the API URL (NEXT_PUBLIC_API_BASE_URL / root .env APP_ENV + API_BASE_URL_*), CORS, and that the server is running.`,
     );
   }
 }
@@ -85,7 +92,7 @@ export async function listChatUsers(token: string) {
     );
   }
   return requestJson(`${API_BASE_URL}/chat/users`, {
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -97,7 +104,7 @@ export async function sendDirectMessage(token: string, targetUserId: string, con
   }
   return requestJson(`${API_BASE_URL}/chat/dm/${targetUserId}`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
     body: JSON.stringify({ content }),
   });
 }
@@ -109,7 +116,7 @@ export async function listDirectMessages(token: string, targetUserId: string) {
     );
   }
   return requestJson(`${API_BASE_URL}/chat/dm/${targetUserId}`, {
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -121,7 +128,7 @@ export async function createGroup(token: string, payload: { name: string; descri
   }
   return requestJson(`${API_BASE_URL}/chat/groups`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
     body: JSON.stringify(payload),
   });
 }
@@ -133,7 +140,7 @@ export async function listGroups(token: string) {
     );
   }
   return requestJson(`${API_BASE_URL}/chat/groups`, {
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -145,7 +152,7 @@ export async function joinGroup(token: string, groupId: string) {
   }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/request-join`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -156,7 +163,7 @@ export async function searchChat(token: string, q: string) {
     );
   }
   return requestJson(`${API_BASE_URL}/chat/search?q=${encodeURIComponent(q)}`, {
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -167,7 +174,7 @@ export async function listGroupJoinRequests(token: string, groupId: string) {
     );
   }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/requests`, {
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -184,7 +191,7 @@ export async function respondToGroupJoinRequest(
   }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/requests/action`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
     body: JSON.stringify({ requester_user_id: requesterUserId, approve }),
   });
 }
@@ -197,7 +204,7 @@ export async function sendGroupMessage(token: string, groupId: string, content: 
   }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/messages`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
     body: JSON.stringify({ content }),
   });
 }
@@ -209,7 +216,7 @@ export async function listGroupMessages(token: string, groupId: string) {
     );
   }
   return requestJson(`${API_BASE_URL}/chat/groups/${groupId}/messages`, {
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
   });
 }
 
@@ -224,7 +231,48 @@ export async function askChatAi(
   }
   return requestJson(`${API_BASE_URL}/chat/ask-ai`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: await buildAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function extractChatTasks(
+  token: string,
+  payload: { chat_type: "dm" | "group"; target_id: string; force?: boolean },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  return requestJson(`${API_BASE_URL}/chat/extract-tasks`, {
+    method: "POST",
+    headers: await buildAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function applyTaskAction(
+  token: string,
+  payload: {
+    action: "create" | "update" | "comment" | "close";
+    title?: string;
+    description?: string;
+    owner?: string;
+    priority?: string;
+    existing_item_id?: string;
+    update_fields?: Record<string, string>;
+    comment?: string;
+  },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  return requestJson(`${API_BASE_URL}/chat/apply-task-action`, {
+    method: "POST",
+    headers: await buildAuthHeaders(token),
     body: JSON.stringify(payload),
   });
 }
