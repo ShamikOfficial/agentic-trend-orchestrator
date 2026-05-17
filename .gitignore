@@ -11,14 +11,12 @@ __pycache__/
 # Jupyter notebooks
 *.ipynb
 
-<<<<<<< HEAD
 # Google OAuth client downloads (never commit)
 client_secret*.json
-=======
+
 # Cursor / agent debug logs
 debug-*.log
 .cursor/debug-*.log
->>>>>>> ddac349adb2110e46d63a762627bd1da97aaca16
 
 # Local environment secrets
 .env
