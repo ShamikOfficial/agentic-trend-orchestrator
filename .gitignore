@@ -11,6 +11,10 @@ __pycache__/
 # Jupyter notebooks
 *.ipynb
 
+# Cursor / agent debug logs
+debug-*.log
+.cursor/debug-*.log
+
 # Local environment secrets
 .env
 .env.*
