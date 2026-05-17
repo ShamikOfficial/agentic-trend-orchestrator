@@ -71,6 +71,21 @@ def test_workflow_repo_round_trip():
     assert loaded.title == "Test"
 
 
+def test_long_password_register_and_login(client):
+    long_password = "p" * 100
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"username": "longpwuser", "password": long_password, "display_name": "Long PW"},
+    )
+    assert register.status_code == 200, register.text
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "longpwuser", "password": long_password},
+    )
+    assert login.status_code == 200, login.text
+    assert login.json().get("token")
+
+
 def test_llm_quota_blocks_when_exceeded():
     auth_repo.create_user_record(
         {

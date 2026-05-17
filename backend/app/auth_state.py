@@ -1,15 +1,38 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from datetime import UTC, datetime
 
-from passlib.context import CryptContext
+import bcrypt
 
 from backend.app.persistence import auth_repo
 from backend.app.services.team import service as id_service
 
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _password_digest(password: str) -> str:
+    """SHA-256 prehash so bcrypt never sees >72 raw bytes (bcrypt 4.x limit)."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def _hash_password(password: str) -> str:
+    secret = _password_digest(password).encode("utf-8")
+    return bcrypt.hashpw(secret, bcrypt.gensalt()).decode("ascii")
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    stored = password_hash.encode("ascii")
+    if bcrypt.checkpw(_password_digest(password).encode("utf-8"), stored):
+        return True
+    # Legacy: bcrypt of raw password (passlib era; only valid for <=72 bytes).
+    raw = password.encode("utf-8")
+    if len(raw) > 72:
+        return False
+    try:
+        return bcrypt.checkpw(raw, stored)
+    except ValueError:
+        return False
 
 
 def now_iso() -> str:
@@ -33,7 +56,7 @@ def create_user(username: str, password: str, display_name: str | None = None) -
         "username": lowered,
         "email": lowered if "@" in lowered else None,
         "display_name": display_name or username,
-        "password_hash": _pwd.hash(password),
+        "password_hash": _hash_password(password),
         "created_at": now_iso(),
     }
     auth_repo.create_user_record(user)
@@ -46,7 +69,7 @@ def login_user(username: str, password: str) -> tuple[str, dict] | None:
     match = auth_repo.find_user_by_username(username)
     if not match or not match.get("password_hash"):
         return None
-    if not _pwd.verify(password, match["password_hash"]):
+    if not _verify_password(password, match["password_hash"]):
         return None
     token = id_service._make_id("tok")
     auth_repo.save_session(token, match["user_id"])
