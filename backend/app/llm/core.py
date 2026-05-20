@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -63,6 +64,20 @@ def _merge_system_into_user_prompt(system_prompt: str, user_prompt: str) -> str:
     return f"{system_prompt.strip()}\n\n--- User prompt ---\n\n{user_prompt}"
 
 
+def _is_gemma4_model(model_name: str) -> bool:
+    return "gemma-4" in model_name.lower() or "gemma4" in model_name.lower()
+
+
+def _gemma_thinking_config(model_name: str) -> dict[str, Any] | None:
+    """Gemma 4 defaults to heavy internal reasoning; MINIMAL cuts latency and 500s."""
+    if not _is_gemma4_model(model_name):
+        return None
+    level = os.getenv("GEMMA_THINKING_LEVEL", "MINIMAL").strip().upper()
+    if level in ("", "0", "OFF", "NONE", "DISABLE"):
+        return None
+    return {"thinkingLevel": level}
+
+
 def _supports_response_json_mime(model_name: str) -> bool:
     """Gemma models reject responseMimeType application/json on the REST API."""
     raw = os.getenv("GEMINI_USE_RESPONSE_JSON_MIME", "auto").strip().lower()
@@ -81,14 +96,45 @@ def _llm_debug_raw() -> bool:
     return os.getenv("LLM_DEBUG_RAW", "0").strip().lower() in ("1", "true", "yes")
 
 
+def _is_gemma_model(model_name: str) -> bool:
+    """Gemma ids only — exclude Gemini Flash/Pro (separate quota)."""
+    lowered = model_name.lower()
+    return "gemma" in lowered and "flash" not in lowered and not lowered.startswith("gemini-")
+
+
+def _gemma_model_chain(*names: str) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in names:
+        n = name.strip()
+        if not n or n in seen or not _is_gemma_model(n):
+            continue
+        seen.add(n)
+        out.append(n)
+    return out
+
+
+_DEFAULT_GEMMA_FALLBACKS = ["gemma-4-26b-a4b-it"]
+_DEFAULT_GEMMA_PRIMARY = "gemma-4-31b-it"
+
+
+def resolved_gemma_model_chain(config: LlmConfig | None = None) -> list[str]:
+    """Primary + fallbacks actually used for API calls (Gemma only)."""
+    cfg = config or load_llm_config()
+    return _gemma_model_chain(cfg.model, *cfg.fallback_models)
+
+
 def load_llm_config() -> LlmConfig:
     provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
     # Prefer explicit LLM_MODEL; else GEMMA_TEST_MODEL (same as gemini_test.ipynb); else Gemma default.
     _explicit = os.getenv("LLM_MODEL", "").strip()
     _notebook = os.getenv("GEMMA_TEST_MODEL", "").strip()
-    model = _explicit or _notebook or "gemma-3-27b-it"
+    raw_primary = _explicit or _notebook or _DEFAULT_GEMMA_PRIMARY
+    model = raw_primary if _is_gemma_model(raw_primary) else _DEFAULT_GEMMA_PRIMARY
     fallback_models_raw = os.getenv("GEMINI_FALLBACK_MODELS", "").strip()
-    fallback_models = [item.strip() for item in fallback_models_raw.split(",") if item.strip()]
+    parsed = [item.strip() for item in fallback_models_raw.split(",") if item.strip()]
+    fallback_models = _gemma_model_chain(*parsed) or _gemma_model_chain(*_DEFAULT_GEMMA_FALLBACKS)
+    fallback_models = [m for m in fallback_models if m != model]
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip()
@@ -194,9 +240,13 @@ def _generate_text_gemini(
     if not config.api_key:
         raise LlmError("Missing GEMINI_API_KEY in environment.")
 
-    models_to_try = [config.model, *config.fallback_models]
+    models_to_try = resolved_gemma_model_chain(config)
+    if not models_to_try:
+        models_to_try = _gemma_model_chain(_DEFAULT_GEMMA_PRIMARY, *_DEFAULT_GEMMA_FALLBACKS)
     last_error: str | None = None
     for model_name in models_to_try:
+        if not _is_gemma_model(model_name):
+            continue
         try:
             return _generate_text_gemini_for_model(
                 prompt=prompt,
@@ -208,10 +258,16 @@ def _generate_text_gemini(
         except LlmError as exc:
             error_text = str(exc)
             last_error = error_text
-            if _is_quota_or_limit_error(error_text) or _is_model_not_found_error(error_text):
+            if (
+                _is_quota_or_limit_error(error_text)
+                or _is_model_not_found_error(error_text)
+                or _is_transient_server_error(error_text)
+            ):
+                if _llm_verbose() and _is_transient_server_error(error_text):
+                    print(f"[llm-debug] transient error on {model_name}, trying next Gemma model")
                 continue
             raise
-    raise LlmError(f"All Gemini models failed. Last error: {last_error or 'unknown error'}")
+    raise LlmError(f"All Gemma models failed. Last error: {last_error or 'unknown error'}")
 
 
 def _generate_text_gemini_for_model(
@@ -222,6 +278,11 @@ def _generate_text_gemini_for_model(
     model_name: str,
     response_mime_json: bool = False,
 ) -> tuple[str, TokenUsage, str]:
+    if not _is_gemma_model(model_name):
+        raise LlmError(
+            f"Model {model_name!r} is blocked. Use Gemma only (e.g. gemma-4-31b-it). "
+            "Remove gemini-*-flash from LLM_MODEL / GEMINI_FALLBACK_MODELS and restart the server."
+        )
     url = f"{config.base_url}/models/{model_name}:generateContent"
     temp = float(os.getenv("LLM_TEMPERATURE", "0.25"))
 
@@ -248,58 +309,82 @@ def _generate_text_gemini_for_model(
         gc: dict[str, Any] = {"temperature": temp}
         if use_json_mime:
             gc["responseMimeType"] = "application/json"
+        thinking = _gemma_thinking_config(model_name)
+        if thinking:
+            gc["thinkingConfig"] = thinking
         payload["generationConfig"] = gc
         return payload
 
+    transient_retries = max(0, int(os.getenv("GEMINI_TRANSIENT_RETRIES", "2")))
     last_detail: str | None = None
     for attempt_json_mime in mime_attempts:
         payload = build_payload(attempt_json_mime)
-        req = Request(
-            url=url,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "X-goog-api-key": config.api_key,
-            },
-            data=json.dumps(payload).encode("utf-8"),
-        )
-        try:
-            with urlopen(req, timeout=config.timeout_seconds) as response:
-                raw = response.read().decode("utf-8")
-                if _llm_debug_raw():
-                    print(f"[llm-debug] model={model_name} json_mime={attempt_json_mime} raw_response=\n{raw}")
-                data = json.loads(raw)
-                usage = _parse_gemini_token_usage(model_name, data)
-                global _last_token_usage
-                _last_token_usage = usage
-                if _llm_verbose():
-                    print(
-                        f"[llm-debug] provider=gemini model={model_name} "
-                        f"prompt_tokens={usage.prompt_tokens} output_tokens={usage.output_tokens} "
-                        f"total_tokens={usage.total_tokens}"
-                    )
-                extracted = _extract_gemini_text(data)
-                if _llm_debug_raw():
-                    print(f"[llm-debug] model={model_name} extracted_text=\n{extracted}")
-                return extracted, usage, model_name
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="ignore")
-            last_detail = detail
-            if (
-                exc.code == 400
-                and attempt_json_mime
-                and use_json_mime
-                and len(mime_attempts) > 1
-            ):
-                if _llm_verbose():
-                    print(
-                        f"[llm-debug] model={model_name} JSON MIME rejected; retrying without "
-                        f"(detail={detail[:240]!r}…)"
-                    )
-                continue
-            raise LlmError(f"Gemini model {model_name} HTTP error {exc.code}: {detail}") from exc
-        except URLError as exc:
-            raise LlmError(f"Gemini model {model_name} network error: {exc}") from exc
+        retry_without_json_mime = False
+        for transient_attempt in range(transient_retries + 1):
+            req = Request(
+                url=url,
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-goog-api-key": config.api_key,
+                },
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            try:
+                with urlopen(req, timeout=config.timeout_seconds) as response:
+                    raw = response.read().decode("utf-8")
+                    if _llm_debug_raw():
+                        print(
+                            f"[llm-debug] model={model_name} json_mime={attempt_json_mime} "
+                            f"raw_response=\n{raw}"
+                        )
+                    data = json.loads(raw)
+                    usage = _parse_gemini_token_usage(model_name, data)
+                    global _last_token_usage
+                    _last_token_usage = usage
+                    if _llm_verbose():
+                        print(
+                            f"[llm-debug] provider=gemini model={model_name} "
+                            f"prompt_tokens={usage.prompt_tokens} output_tokens={usage.output_tokens} "
+                            f"total_tokens={usage.total_tokens}"
+                        )
+                    extracted = _extract_gemini_text(data)
+                    if _llm_debug_raw():
+                        print(f"[llm-debug] model={model_name} extracted_text=\n{extracted}")
+                    return extracted, usage, model_name
+            except HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="ignore")
+                last_detail = detail
+                if (
+                    exc.code == 400
+                    and attempt_json_mime
+                    and use_json_mime
+                    and len(mime_attempts) > 1
+                ):
+                    if _llm_verbose():
+                        print(
+                            f"[llm-debug] model={model_name} JSON MIME rejected; retrying without "
+                            f"(detail={detail[:240]!r}…)"
+                        )
+                    retry_without_json_mime = True
+                    break
+                if _is_transient_http_code(exc.code) and transient_attempt < transient_retries:
+                    delay = 1.0 * (transient_attempt + 1)
+                    if _llm_verbose():
+                        print(
+                            f"[llm-debug] model={model_name} HTTP {exc.code}, "
+                            f"retry {transient_attempt + 1}/{transient_retries} in {delay}s"
+                        )
+                    time.sleep(delay)
+                    continue
+                raise LlmError(f"Gemini model {model_name} HTTP error {exc.code}: {detail}") from exc
+            except URLError as exc:
+                if transient_attempt < transient_retries:
+                    time.sleep(1.0 * (transient_attempt + 1))
+                    continue
+                raise LlmError(f"Gemini model {model_name} network error: {exc}") from exc
+        if retry_without_json_mime:
+            continue
 
     raise LlmError(f"Gemini model {model_name} failed after MIME retries: {last_detail or 'unknown'}")
 
@@ -317,6 +402,17 @@ def _is_model_not_found_error(error_text: str) -> bool:
     return "404" in lowered and "not_found" in lowered
 
 
+def _is_transient_http_code(code: int) -> bool:
+    return code in (500, 502, 503, 504)
+
+
+def _is_transient_server_error(error_text: str) -> bool:
+    lowered = error_text.lower()
+    if any(f"http error {code}" in lowered for code in (500, 502, 503, 504)):
+        return True
+    return '"status": "internal"' in lowered or '"code": 500' in lowered
+
+
 def _extract_gemini_text(data: dict[str, Any]) -> str:
     candidates = data.get("candidates") or []
     if not candidates:
@@ -324,8 +420,14 @@ def _extract_gemini_text(data: dict[str, Any]) -> str:
     first = candidates[0] if isinstance(candidates[0], dict) else {}
     reason = first.get("finishReason") or first.get("finish_reason")
     parts = first.get("content", {}).get("parts", [])
-    texts = [part.get("text", "") for part in parts if isinstance(part, dict)]
-    text = "\n".join(chunk for chunk in texts if chunk).strip()
+    answer_parts = [
+        part.get("text", "")
+        for part in parts
+        if isinstance(part, dict) and not part.get("thought")
+    ]
+    if not any(p.strip() for p in answer_parts):
+        answer_parts = [part.get("text", "") for part in parts if isinstance(part, dict)]
+    text = "\n".join(chunk for chunk in answer_parts if chunk).strip()
     if not text:
         extra = f" finishReason={reason!r}" if reason else ""
         raise LlmError(f"Gemini returned empty text.{extra}")

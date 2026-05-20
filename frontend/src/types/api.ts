@@ -233,6 +233,7 @@ export interface ChatTaskAnalysisSectionsResponse {
 
 export interface ChatTaskSuggestion {
   action: "create" | "update" | "comment" | "close";
+  source_message_id?: string;
   reasoning: string;
   title: string;
   description: string;
@@ -254,7 +255,8 @@ export interface ChatExtractTasksRequest {
 }
 
 export interface ChatExtractTasksResponse {
-  status: "pending" | "analyzed";
+  status: "pending" | "analyzed" | "already_analyzed";
+  message?: string;
   unanalyzed_count: number;
   threshold?: number;
   pending_until_analyze?: number;

@@ -1,14 +1,18 @@
 """Chat-scoped Q&A using the configured LLM (no tools; transcript-only).
 
 Uses the same stack as Team Assistant: `generate_text` + `load_llm_config()` — i.e.
-`GEMINI_API_KEY`, `LLM_MODEL` / `GEMMA_TEST_MODEL`, default `gemma-3-27b-it`,
+`GEMINI_API_KEY`, `LLM_MODEL` / `GEMMA_TEST_MODEL`, default `gemma-4-31b-it`,
 `GEMINI_FALLBACK_MODELS`, `GEMINI_BASE_URL`, Gemma system-instruction merge, etc.
 (`response_mime_json=False` here because answers are plain text, not JSON.)
 """
 
 from __future__ import annotations
 
+from datetime import UTC
+from zoneinfo import ZoneInfo
+
 from backend.app import auth_state
+from backend.app.services.chat.message_timing import parse_message_created_at
 from backend.app.llm import LlmError, generate_text, generate_text_guarded, load_llm_config
 
 _MAX_TRANSCRIPT_CHARS = 56_000
@@ -30,15 +34,23 @@ def _display_name(user_id: str) -> str:
         return user_id
 
 
-def format_transcript(messages: list[dict]) -> str:
+def format_transcript(messages: list[dict], *, client_timezone: str | None = None) -> str:
     if not messages:
         return ""
+    tz = ZoneInfo("UTC")
+    if client_timezone:
+        try:
+            tz = ZoneInfo(client_timezone)
+        except Exception:
+            pass
     lines: list[str] = []
     for m in messages:
         sid = str(m.get("sender_id", ""))
-        ts = str(m.get("created_at", ""))
+        mid = str(m.get("message_id", ""))
+        dt = parse_message_created_at(m.get("created_at"))
+        sent = dt.astimezone(tz).strftime("%Y-%m-%d %H:%M %Z (%A)")
         body = str(m.get("content", "")).replace("\r\n", "\n")
-        lines.append(f"[{ts}] {_display_name(sid)}: {body}")
+        lines.append(f"[message_id={mid} sent_at={sent}] {_display_name(sid)}: {body}")
     text = "\n".join(lines)
     if len(text) > _MAX_TRANSCRIPT_CHARS:
         text = text[-_MAX_TRANSCRIPT_CHARS:]

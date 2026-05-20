@@ -8,7 +8,7 @@ from typing import Any, Literal
 from backend.app.llm import LlmError, LlmQuotaError
 from backend.app.persistence import chat_repo, workflow_repo
 from backend.app.services.chat import assistant as chat_assistant
-from backend.app.services.chat import schedule_slots, task_analysis_batches, task_extractor
+from backend.app.services.chat import schedule_extract, schedule_slots, task_analysis_batches, task_extractor
 
 ChatIntent = Literal["ask", "summarize", "extract_tasks", "assign_tasks", "availability"]
 
@@ -31,6 +31,11 @@ _CREATE_TASK = re.compile(
     r"\b(create|add|make)\b.*\b(task|todo|action\s*item|work\s*item)\b",
     re.I,
 )
+_SCHEDULE_TASK = re.compile(
+    r"\b(schedule|book|set\s+up)\b.*\b(meet|meeting|call|sync)\b"
+    r"|\b(meet|meeting)\b.*\b(on|for|next|tomorrow|monday|tuesday|wednesday|thursday|friday)\b",
+    re.I,
+)
 
 
 def classify_chat_intent(question: str) -> ChatIntent:
@@ -41,7 +46,7 @@ def classify_chat_intent(question: str) -> ChatIntent:
         return "availability"
     if _ASSIGN_TASKS.search(q):
         return "assign_tasks"
-    if _EXTRACT_TASKS.search(q) or _CREATE_TASK.search(q):
+    if _EXTRACT_TASKS.search(q) or _CREATE_TASK.search(q) or _SCHEDULE_TASK.search(q):
         return "extract_tasks"
     if _SUMMARIZE.search(q):
         return "summarize"
@@ -101,15 +106,23 @@ def run_chat_orchestrator(
         ]
         last_analyzed_id = chat_repo.get_analysis_state(chat_key)
         next_batch_index = chat_repo.count_analysis_batches(chat_key)
+        prior_batches = chat_repo.list_analysis_batches(chat_key)
         selected = task_analysis_batches.select_messages_for_extraction(
             messages,
             last_analyzed_id=last_analyzed_id,
             next_batch_index=next_batch_index,
             force=True,
+            prior_batches=prior_batches,
         )
         if selected is None:
+            analyzed_ids = task_analysis_batches.analyzed_message_ids_from_batches(prior_batches)
+            unanalyzed = task_analysis_batches.unanalyzed_messages(messages, analyzed_ids)
+            if not unanalyzed and prior_batches:
+                result["answer"] = (
+                    "All chat messages were already analyzed for tasks. Send a new message first."
+                )
+                return result
             batch_size = task_analysis_batches.task_extract_force_count()
-            unanalyzed = task_analysis_batches.messages_after_id(messages, last_analyzed_id)
             need = max(0, batch_size - len(unanalyzed))
             result["answer"] = (
                 f"Need {need} more message(s) before the next task section can be analyzed "
@@ -127,10 +140,18 @@ def run_chat_orchestrator(
             )
         except (LlmError, LlmQuotaError):
             raise
-        result["task_suggestions"] = task_analysis_batches.attach_batch_to_suggestions(
+        suggestions = task_analysis_batches.attach_message_source_to_suggestions(
             suggestions,
             batch_meta,
+            batch_messages,
         )
+        suggestions = task_extractor.finalize_task_suggestions(
+            suggestions,
+            linked_items,
+            batch_messages=batch_messages,
+            all_messages=messages,
+        )
+        result["task_suggestions"] = suggestions
         result["analysis_batch"] = batch_meta
         if intent == "assign_tasks":
             result["answer"] = (
@@ -140,10 +161,21 @@ def run_chat_orchestrator(
                 else "No tasks to assign from recent messages."
             )
         elif suggestions:
-            result["answer"] = (
-                f"Found {len(suggestions)} actionable task(s). "
-                "Pick a date/time for each in the task panel below, then Accept."
+            needs_schedule = any(
+                s.get("action") in ("create", "update")
+                and not schedule_extract.suggestion_has_complete_schedule(s)
+                for s in suggestions
             )
+            if needs_schedule:
+                result["answer"] = (
+                    f"Found {len(suggestions)} actionable task(s). "
+                    "Pick a date/time for any task missing a schedule in the panel below, then Accept."
+                )
+            else:
+                result["answer"] = (
+                    f"Found {len(suggestions)} actionable task(s) with dates from your message. "
+                    "Review the prefilled schedule and Accept."
+                )
         else:
             result["answer"] = "No actionable tasks found in this conversation."
         return result

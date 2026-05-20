@@ -15,30 +15,35 @@ class AnalysisBatchMeta(TypedDict):
 
 
 def task_extract_batch_size() -> int:
-    return max(1, int(os.getenv("TASK_EXTRACT_BATCH_SIZE", "5")))
+    """Messages per extract pass (default 1 = one chat line at a time)."""
+    return max(1, int(os.getenv("TASK_EXTRACT_BATCH_SIZE", "1")))
 
 
 def task_extract_force_count() -> int:
-    """Manual analyze uses the same section size as auto by default."""
     raw = os.getenv("TASK_EXTRACT_FORCE_COUNT", "").strip()
     if raw:
         return max(1, int(raw))
     return task_extract_batch_size()
 
 
-def messages_after_id(messages: list[dict], last_id: str | None) -> list[dict]:
-    if not last_id:
-        return list(messages)
-    found = False
-    result: list[dict] = []
-    for msg in messages:
-        if found:
-            result.append(msg)
-        elif msg.get("message_id") == last_id:
-            found = True
-    if not found:
-        return list(messages)
-    return result
+def analyzed_message_ids_from_batches(batches: list[dict]) -> set[str]:
+    ids: set[str] = set()
+    for batch in batches:
+        for mid in batch.get("message_ids") or []:
+            if mid:
+                ids.add(str(mid))
+    return ids
+
+
+def unanalyzed_messages(all_messages: list[dict], analyzed_ids: set[str]) -> list[dict]:
+    """Chat lines never sent to task extraction yet."""
+    if not analyzed_ids:
+        return list(all_messages)
+    return [
+        m
+        for m in all_messages
+        if str(m.get("message_id") or "") and str(m.get("message_id")) not in analyzed_ids
+    ]
 
 
 def build_batch_meta(messages: list[dict], batch_index: int) -> AnalysisBatchMeta:
@@ -52,19 +57,31 @@ def build_batch_meta(messages: list[dict], batch_index: int) -> AnalysisBatchMet
     }
 
 
-def attach_batch_to_suggestions(
+def attach_message_source_to_suggestions(
     suggestions: list[dict[str, Any]],
     batch: AnalysisBatchMeta,
+    batch_messages: list[dict],
 ) -> list[dict[str, Any]]:
+    """Link each suggestion to the exact chat message that triggered it."""
+    valid_ids = {str(m.get("message_id")) for m in batch_messages if m.get("message_id")}
+    default_id = batch["last_message_id"] if len(batch["message_ids"]) == 1 else ""
     out: list[dict[str, Any]] = []
     for s in suggestions:
         enriched = dict(s)
+        mid = str(s.get("source_message_id") or "").strip()
+        if mid not in valid_ids:
+            mid = default_id or (batch["message_ids"][-1] if batch["message_ids"] else "")
+        enriched["source_message_id"] = mid
+        enriched["source_message_ids"] = [mid] if mid else list(batch["message_ids"])
         enriched["source_message_batch_index"] = batch["batch_index"]
-        enriched["source_message_ids"] = list(batch["message_ids"])
-        enriched["source_first_message_id"] = batch["first_message_id"]
-        enriched["source_last_message_id"] = batch["last_message_id"]
+        enriched["source_first_message_id"] = mid or batch["first_message_id"]
+        enriched["source_last_message_id"] = mid or batch["last_message_id"]
         out.append(enriched)
     return out
+
+
+def message_order_index(messages: list[dict]) -> dict[str, int]:
+    return {str(m["message_id"]): i for i, m in enumerate(messages) if m.get("message_id")}
 
 
 def select_messages_for_extraction(
@@ -73,19 +90,29 @@ def select_messages_for_extraction(
     last_analyzed_id: str | None,
     next_batch_index: int,
     force: bool,
+    prior_batches: list[dict] | None = None,
 ) -> tuple[list[dict], AnalysisBatchMeta] | None:
     """
-    Pick the next section of N messages to analyze.
-
-    Auto (force=False): only when at least N unanalyzed messages exist; takes the oldest N.
-    Manual (force=True): same batch rules but uses TASK_EXTRACT_FORCE_COUNT as section size
-    when set, otherwise TASK_EXTRACT_BATCH_SIZE.
+    Pick the next unanalyzed message(s). Already-analyzed lines are never sent again.
     """
+    _ = last_analyzed_id  # kept for API compat; selection uses batch message_ids only
+    batches = prior_batches or []
+    analyzed_ids = analyzed_message_ids_from_batches(batches)
+    unanalyzed = unanalyzed_messages(all_messages, analyzed_ids)
     batch_size = task_extract_force_count() if force else task_extract_batch_size()
-    unanalyzed = messages_after_id(all_messages, last_analyzed_id)
 
-    if len(unanalyzed) < batch_size:
+    if not unanalyzed:
+        return None
+    if len(unanalyzed) < batch_size and not force:
         return None
 
     batch_messages = unanalyzed[:batch_size]
     return batch_messages, build_batch_meta(batch_messages, next_batch_index)
+
+
+# Backward-compatible alias
+def attach_batch_to_suggestions(
+    suggestions: list[dict[str, Any]],
+    batch: AnalysisBatchMeta,
+) -> list[dict[str, Any]]:
+    return attach_message_source_to_suggestions(suggestions, batch, [])
