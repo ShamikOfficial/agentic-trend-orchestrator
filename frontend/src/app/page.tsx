@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { HomeClient } from "@/components/home-client";
+import { RootRedirect } from "@/components/root-redirect";
 
 export default function Home() {
   return (
@@ -10,7 +10,7 @@ export default function Home() {
         </main>
       }
     >
-      <HomeClient />
+      <RootRedirect />
     </Suspense>
   );
 }

@@ -124,8 +124,15 @@ export interface WorkflowItem {
   stage: WorkflowStage;
   owner?: string;
   linked_trend?: string;
+  source_chat_key?: string;
+  source_message_batch_index?: number;
+  source_message_ids?: string[];
+  source_first_message_id?: string;
+  source_last_message_id?: string;
   project?: string;
   due_date?: string;
+  scheduled_start?: string;
+  scheduled_end?: string;
   comments?: string[];
   links?: string[];
   attachments?: string[];
@@ -162,6 +169,8 @@ export interface UpdateWorkflowItemRequest {
   linked_trend?: string;
   project?: string;
   due_date?: string;
+  scheduled_start?: string;
+  scheduled_end?: string;
   comments?: string[];
   links?: string[];
   attachments?: string[];
@@ -206,6 +215,22 @@ export interface UploadWorkflowAttachmentResponse {
   url: string;
 }
 
+export interface ChatTaskAnalysisSection {
+  batch_index: number;
+  first_message_id: string;
+  last_message_id: string;
+  message_ids: string[];
+  message_count: number;
+  analyzed_at: string;
+}
+
+export interface ChatTaskAnalysisSectionsResponse {
+  batch_size: number;
+  sections: ChatTaskAnalysisSection[];
+  pending_count: number;
+  pending_until_analyze: number;
+}
+
 export interface ChatTaskSuggestion {
   action: "create" | "update" | "comment" | "close";
   reasoning: string;
@@ -216,6 +241,10 @@ export interface ChatTaskSuggestion {
   existing_item_id: string;
   update_fields: Record<string, string>;
   comment: string;
+  source_message_batch_index?: number;
+  source_message_ids?: string[];
+  source_first_message_id?: string;
+  source_last_message_id?: string;
 }
 
 export interface ChatExtractTasksRequest {
@@ -228,6 +257,8 @@ export interface ChatExtractTasksResponse {
   status: "pending" | "analyzed";
   unanalyzed_count: number;
   threshold?: number;
+  pending_until_analyze?: number;
+  analysis_batch?: ChatTaskAnalysisSection | null;
   suggestions: ChatTaskSuggestion[];
 }
 
@@ -240,6 +271,59 @@ export interface ChatApplyTaskActionRequest {
   existing_item_id?: string;
   update_fields?: Record<string, string>;
   comment?: string;
+  chat_type?: "dm" | "group";
+  target_id?: string;
+  source_message_batch_index?: number;
+  source_message_ids?: string[];
+  source_first_message_id?: string;
+  source_last_message_id?: string;
+}
+
+export interface Milestone {
+  milestone_id: string;
+  item_id: string;
+  title: string;
+  owner?: string;
+  due_date?: string;
+  scheduled_start?: string;
+  scheduled_end?: string;
+  status?: string;
+}
+
+export interface ChatWorkItemsResponse {
+  chat_key: string;
+  items: WorkflowItem[];
+  milestones: Milestone[];
+}
+
+export interface CalendarIcsEvent {
+  summary: string;
+  start: string;
+  end: string;
+  all_day?: string;
+}
+
+export interface FetchCalendarIcsResponse {
+  event_count: number;
+  events: CalendarIcsEvent[];
+}
+
+export interface TimeSlot {
+  start: string;
+  end: string;
+  label: string;
+  score: number;
+  conflict: boolean;
+  recommended: boolean;
+}
+
+export interface SuggestTimeSlotsResponse {
+  nature: string;
+  smart_reply: string;
+  duration_minutes: number;
+  needs_scheduling?: boolean;
+  slots: TimeSlot[];
+  busy_blocks: { start: string; end: string; title: string }[];
 }
 
 export interface ChatApplyTaskActionResponse {

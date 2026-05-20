@@ -10,6 +10,7 @@ from backend.app.llm import LlmError, generate_text, generate_text_guarded, load
 from backend.app.llm.prompts import CHAT_TASK_EXTRACT_PROMPT
 from backend.app.models.workflow import WorkflowItem
 from backend.app.services.chat.assistant import format_transcript
+from backend.app.services.chat.task_dedupe import dedupe_suggestions
 
 
 def _serialize_workflow_items(items: list[WorkflowItem]) -> str:
@@ -17,9 +18,14 @@ def _serialize_workflow_items(items: list[WorkflowItem]) -> str:
         return "(none)"
     lines: list[str] = []
     for item in items:
+        sched = ""
+        if item.scheduled_start:
+            sched = f" | scheduled={item.scheduled_start.isoformat()}"
+        elif item.due_date:
+            sched = f" | due_date={item.due_date.isoformat()}"
         lines.append(
             f"- id={item.item_id} | title={item.title} | stage={item.stage} "
-            f"| owner={item.owner or ''} | description={item.description[:120]}"
+            f"| owner={item.owner or ''}{sched} | description={item.description[:120]}"
         )
     return "\n".join(lines)
 
@@ -108,4 +114,4 @@ def extract_tasks_from_chat(
         validated = _validate_suggestion(item)
         if validated:
             suggestions.append(validated)
-    return suggestions
+    return dedupe_suggestions(suggestions, existing_items)

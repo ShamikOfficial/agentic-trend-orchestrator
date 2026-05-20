@@ -44,7 +44,8 @@ CHAT_TASK_EXTRACT_PROMPT = PromptTemplate(
         '    "owner": "person name or empty string (for create)",\n'
         '    "priority": "low|medium|high (for create)",\n'
         '    "existing_item_id": "item_id of matching workflow item (for update/comment, empty for create)",\n'
-        '    "update_fields": {{"stage": "Idea|Brief|Production|Review|Publish", "description": "..."}} ,\n'
+        '    "update_fields": {{"stage": "Idea|Brief|Production|Review|Publish", "description": "...", '
+        '"due_date": "YYYY-MM-DD", "scheduled_start": "ISO-8601", "scheduled_end": "ISO-8601", "owner": "name"}} ,\n'
         '    "comment": "comment text (for comment action)"\n'
         "  }}\n"
         "]\n\n"
@@ -56,6 +57,9 @@ CHAT_TASK_EXTRACT_PROMPT = PromptTemplate(
         '- If a done/published item should be reopened, use update with stage change.\n'
         "- Valid stage values are ONLY: Idea, Brief, Production, Review, Publish. Do NOT use any other stage names.\n"
         "- For create, leave existing_item_id as empty string.\n"
+        "- When messages mention deadlines or meeting times, include due_date and scheduled_start/end in update_fields.\n"
+        "- Do NOT suggest creating a task that already appears in EXISTING WORKFLOW ITEMS (same or very similar title).\n"
+        "- Do NOT output duplicate suggestions in your JSON array (one entry per distinct action).\n"
         "- For update/comment, existing_item_id is required.\n"
         "- Return empty array [] if no actionable items found.\n\n"
         "EXISTING WORKFLOW ITEMS:\n{existing_items}\n\n"

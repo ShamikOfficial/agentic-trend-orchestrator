@@ -69,6 +69,12 @@ def list_milestones_for_item(item_id: str) -> list[str]:
         return [row.milestone_id for row in rows if row.payload.get("item_id") == item_id]
 
 
+def list_milestones() -> list[Milestone]:
+    with session_scope() as session:
+        rows = session.scalars(select(MilestoneRow)).all()
+        return [Milestone(**row.payload) for row in rows]
+
+
 def delete_milestones_for_item(item_id: str) -> None:
     with session_scope() as session:
         rows = session.scalars(select(MilestoneRow)).all()

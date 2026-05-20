@@ -10,14 +10,22 @@ export class ChatApiError extends Error {
   }
 }
 
-import { resolveApiAuthHeaders } from "@/lib/auth-session";
+import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
 
 async function buildAuthHeaders(token?: string) {
   const base = { "Content-Type": "application/json" };
-  if (token) {
-    return { ...base, "x-auth-token": token };
+  const bearer = await fetchBearerToken();
+  if (bearer) {
+    await syncOAuthUser(bearer);
+    return { ...base, Authorization: `Bearer ${bearer}` };
   }
-  return { ...base, ...(await resolveApiAuthHeaders()) };
+  const legacy =
+    token ||
+    (typeof window !== "undefined" ? window.localStorage.getItem("ato_auth_token") ?? "" : "");
+  if (legacy) {
+    return { ...base, "x-auth-token": legacy };
+  }
+  return base;
 }
 
 async function parseErrorMessage(response: Response, fallback: string) {
@@ -35,12 +43,19 @@ async function parseErrorMessage(response: Response, fallback: string) {
 
 async function requestJson(url: string, init?: RequestInit) {
   try {
-    const response = await fetch(url, init);
+    const response = await fetch(url, {
+      cache: "no-store",
+      ...init,
+    });
     if (!response.ok) {
       const detail = await parseErrorMessage(response, `Request failed: ${response.status}`);
       throw new ChatApiError(detail, response.status);
     }
-    return response.json();
+    const text = await response.text();
+    if (!text.trim()) {
+      return null;
+    }
+    return JSON.parse(text) as unknown;
   } catch (error) {
     if (error instanceof ChatApiError) {
       throw error;
@@ -118,6 +133,58 @@ export async function listDirectMessages(token: string, targetUserId: string) {
   return requestJson(`${API_BASE_URL}/chat/dm/${targetUserId}`, {
     headers: await buildAuthHeaders(token),
   });
+}
+
+export async function deleteDirectMessage(token: string, targetUserId: string, messageId: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  const base = `${API_BASE_URL}/chat/dm/${encodeURIComponent(targetUserId)}/messages/${encodeURIComponent(messageId)}`;
+  const headers = await buildAuthHeaders(token);
+  try {
+    return (await requestJson(base, { method: "DELETE", headers })) as {
+      deleted: boolean;
+      message_id: string;
+      already_gone?: boolean;
+    };
+  } catch (error) {
+    if (error instanceof ChatApiError && error.status === 404) {
+      return (await requestJson(`${base}/delete`, { method: "POST", headers })) as {
+        deleted: boolean;
+        message_id: string;
+        already_gone?: boolean;
+      };
+    }
+    throw error;
+  }
+}
+
+export async function deleteGroupMessage(token: string, groupId: string, messageId: string) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  const base = `${API_BASE_URL}/chat/groups/${encodeURIComponent(groupId)}/messages/${encodeURIComponent(messageId)}`;
+  const headers = await buildAuthHeaders(token);
+  try {
+    return (await requestJson(base, { method: "DELETE", headers })) as {
+      deleted: boolean;
+      message_id: string;
+      already_gone?: boolean;
+    };
+  } catch (error) {
+    if (error instanceof ChatApiError && error.status === 404) {
+      return (await requestJson(`${base}/delete`, { method: "POST", headers })) as {
+        deleted: boolean;
+        message_id: string;
+        already_gone?: boolean;
+      };
+    }
+    throw error;
+  }
 }
 
 export async function createGroup(token: string, payload: { name: string; description?: string }) {
@@ -220,10 +287,39 @@ export async function listGroupMessages(token: string, groupId: string) {
   });
 }
 
+export async function deleteChatConversation(
+  token: string,
+  params: { chat_type: "dm" | "group"; target_id: string },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  const qs = new URLSearchParams({
+    chat_type: params.chat_type,
+    target_id: params.target_id,
+  });
+  return requestJson(`${API_BASE_URL}/chat/conversation?${qs.toString()}`, {
+    method: "DELETE",
+    headers: await buildAuthHeaders(token),
+  }) as Promise<{ deleted: boolean; messages_removed: number }>;
+}
+
 export async function askChatAi(
   token: string,
-  payload: { chat_type: "dm" | "group"; target_id: string; question: string },
-): Promise<{ answer: string }> {
+  payload: {
+    chat_type: "dm" | "group";
+    target_id: string;
+    question: string;
+    external_events?: import("@/types/api").CalendarIcsEvent[];
+  },
+): Promise<{
+  answer: string;
+  show_schedule_picker?: boolean;
+  intent?: string;
+  task_suggestions?: import("@/types/api").ChatTaskSuggestion[];
+}> {
   if (!API_BASE_URL) {
     throw new ChatApiError(
       "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
@@ -233,7 +329,30 @@ export async function askChatAi(
     method: "POST",
     headers: await buildAuthHeaders(token),
     body: JSON.stringify(payload),
+  }) as Promise<{
+    answer: string;
+    show_schedule_picker?: boolean;
+    intent?: string;
+    task_suggestions?: import("@/types/api").ChatTaskSuggestion[];
+  }>;
+}
+
+export async function listChatTaskAnalysisSections(
+  token: string,
+  params: { chat_type: "dm" | "group"; target_id: string },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  const q = new URLSearchParams({
+    chat_type: params.chat_type,
+    target_id: params.target_id,
   });
+  return requestJson(`${API_BASE_URL}/chat/task-analysis-sections?${q}`, {
+    headers: await buildAuthHeaders(token),
+  }) as Promise<import("@/types/api").ChatTaskAnalysisSectionsResponse>;
 }
 
 export async function extractChatTasks(
@@ -249,7 +368,7 @@ export async function extractChatTasks(
     method: "POST",
     headers: await buildAuthHeaders(token),
     body: JSON.stringify(payload),
-  });
+  }) as Promise<import("@/types/api").ChatExtractTasksResponse>;
 }
 
 export async function applyTaskAction(
@@ -263,6 +382,12 @@ export async function applyTaskAction(
     existing_item_id?: string;
     update_fields?: Record<string, string>;
     comment?: string;
+    chat_type?: "dm" | "group";
+    target_id?: string;
+    source_message_batch_index?: number;
+    source_message_ids?: string[];
+    source_first_message_id?: string;
+    source_last_message_id?: string;
   },
 ) {
   if (!API_BASE_URL) {
@@ -275,4 +400,63 @@ export async function applyTaskAction(
     headers: await buildAuthHeaders(token),
     body: JSON.stringify(payload),
   });
+}
+
+export async function listChatWorkItems(
+  token: string,
+  params: { chat_type: "dm" | "group"; target_id: string },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  const qs = new URLSearchParams({
+    chat_type: params.chat_type,
+    target_id: params.target_id,
+  });
+  return requestJson(`${API_BASE_URL}/chat/work-items?${qs.toString()}`, {
+    headers: await buildAuthHeaders(token),
+  }) as Promise<import("@/types/api").ChatWorkItemsResponse>;
+}
+
+export async function fetchCalendarIcs(
+  token: string,
+  payload: { ics_url?: string; ics_text?: string },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  return requestJson(`${API_BASE_URL}/calendar/fetch-ics`, {
+    method: "POST",
+    headers: await buildAuthHeaders(token),
+    body: JSON.stringify(payload),
+  }) as Promise<import("@/types/api").FetchCalendarIcsResponse>;
+}
+
+export async function suggestTimeSlots(
+  token: string,
+  payload: {
+    chat_type: "dm" | "group";
+    target_id: string;
+    task_title: string;
+    task_description?: string;
+    duration_minutes?: number;
+    preferred_date?: string;
+    message_text?: string;
+    external_events?: import("@/types/api").CalendarIcsEvent[];
+  },
+) {
+  if (!API_BASE_URL) {
+    throw new ChatApiError(
+      "Missing NEXT_PUBLIC_API_BASE_URL. Set it in frontend/.env.local or Vercel environment variables.",
+    );
+  }
+  return requestJson(`${API_BASE_URL}/chat/suggest-time-slots`, {
+    method: "POST",
+    headers: await buildAuthHeaders(token),
+    body: JSON.stringify(payload),
+  }) as Promise<import("@/types/api").SuggestTimeSlotsResponse>;
 }

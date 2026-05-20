@@ -100,6 +100,17 @@ class ChatAnalysisState(Base):
     last_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class ChatTaskAnalysisBatch(Base):
+    __tablename__ = "chat_task_analysis_batches"
+
+    chat_key: Mapped[str] = mapped_column(String(256), primary_key=True)
+    batch_index: Mapped[int] = mapped_column(primary_key=True)
+    first_message_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_message_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    message_ids: Mapped[list] = mapped_column(JSON, nullable=False)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkflowItemRow(Base):
     __tablename__ = "workflow_items"
 
