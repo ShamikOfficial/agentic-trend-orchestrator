@@ -63,6 +63,7 @@ import {
   suggestionHasPrefilledSchedule,
   suggestionNeedsSchedule,
 } from "@/lib/schedule-utils";
+import { visibleChatAiActions } from "@/lib/feature-flags";
 import type { ChatTaskAnalysisSection, ChatTaskSuggestion } from "@/types/api";
 
 type ChatMode = "dm" | "group";
@@ -103,15 +104,6 @@ type ChatMessageSearchHit = {
 type ListResponse<T> = { items: T[] };
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "🔥", "🙏"];
-const AI_ACTIONS = [
-  "Summarize discussion",
-  "Extract script brief",
-  "Extract tasks",
-  "Assign tasks",
-  "Generate script",
-  "Update project progress",
-  "Send video report",
-] as const;
 
 /** `@chat` anywhere in the message triggers Ask AI; question is the text with @chat tokens removed. */
 function parseChatAiIntent(text: string): { isAskAi: boolean; question: string | null } {
@@ -1611,7 +1603,7 @@ export default function ChatPage() {
               </button>
               {showAIActions ? (
                 <div className="absolute bottom-12 left-11 z-10 w-72 rounded-xl border border-black/10 bg-white p-2 shadow-lg">
-                  {AI_ACTIONS.map((action) => (
+                  {visibleChatAiActions().map((action) => (
                     <button
                       key={action}
                       type="button"

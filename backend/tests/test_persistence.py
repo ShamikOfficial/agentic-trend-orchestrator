@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_app.db"
 os.environ["AUTH_JWT_SECRET"] = "test-secret-for-jwt"
+os.environ["APP_ENV"] = "testing"
+os.environ["LLM_QUOTA_ENFORCE_IN_DEV"] = "true"
 os.environ["LLM_MONTHLY_TOKEN_BUDGET"] = "1000"
 os.environ["LLM_MAX_REQUESTS_PER_DAY"] = "10"
 os.environ["ALLOW_PASSWORD_AUTH"] = "true"

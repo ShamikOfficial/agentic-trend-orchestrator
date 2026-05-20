@@ -16,6 +16,11 @@ import { signOut } from "next-auth/react";
 import { clearBearerCache } from "@/lib/auth-session";
 import { clearAuthToken } from "@/lib/auth-store";
 import { loginPathWithReason } from "@/lib/auth-redirect";
+import {
+  SCRIPT_GENERATION_ENABLED,
+  TREND_DETECTION_ENABLED,
+  VIDEO_UPLOAD_ENABLED,
+} from "@/lib/feature-flags";
 
 const nav = [
   {
@@ -23,38 +28,46 @@ const nav = [
     label: "Chat",
     Icon: MessageCircle,
     activeFor: ["/app/chat", "/app/chat-brief", "/app/chat-tasks", "/app/chat-review", "/app/report-chat", "/chat"],
+    enabled: true,
   },
   {
     href: "/app/tasks",
     label: "My Tasks",
     Icon: CheckSquare,
     activeFor: ["/app/tasks", "/workflow"],
+    enabled: true,
   },
   {
     href: "/app",
     label: "Script Generation",
     Icon: FileText,
     activeFor: ["/app", "/app/brief", "/app/editor", "/app/variations", "/app/storyboard", "/app/save"],
+    enabled: SCRIPT_GENERATION_ENABLED,
   },
   {
     href: "/app/trend-detection",
     label: "Trend Detection",
     Icon: Sparkles,
     activeFor: ["/app/trend-detection"],
+    enabled: TREND_DETECTION_ENABLED,
   },
   {
     href: "/app/upload",
     label: "Video Upload & Report",
     Icon: Upload,
     activeFor: ["/app/upload", "/app/report"],
+    enabled: VIDEO_UPLOAD_ENABLED,
   },
   {
     href: "/app/progress",
     label: "Progress Tracker",
     Icon: BarChart2,
     activeFor: ["/app/progress"],
+    enabled: true,
   },
 ] as const;
+
+const visibleNav = nav.filter((item) => item.enabled);
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -75,7 +88,7 @@ export function AppSidebar() {
       </div>
 
       <nav className="flex flex-1 flex-col items-center gap-2">
-        {nav.map(({ href, label, Icon, activeFor }) => {
+        {visibleNav.map(({ href, label, Icon, activeFor }) => {
           const isActive = activeFor.some((path) => {
             if (pathname === path) return true;
             if (path === "/app") return false;

@@ -31,6 +31,17 @@ def _max_requests_per_day() -> int:
     return int(os.getenv("LLM_MAX_REQUESTS_PER_DAY", "50"))
 
 
+def _quota_enforced() -> bool:
+    """Skip trial limits locally unless explicitly enabled."""
+    if os.getenv("LLM_QUOTA_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("APP_ENV", "").strip().lower() == "development":
+        enforce = os.getenv("LLM_QUOTA_ENFORCE_IN_DEV", "").strip().lower()
+        if enforce not in ("1", "true", "yes"):
+            return False
+    return True
+
+
 def _ensure_quota_row(session, user_id: str) -> UserLlmQuota:
     period = _month_start()
     row = session.get(UserLlmQuota, user_id)
@@ -52,11 +63,15 @@ def _ensure_quota_row(session, user_id: str) -> UserLlmQuota:
             row.tokens_used = 0
             row.requests_today = 0
             row.requests_day = None
-        session.flush()
+    row.token_budget = _default_budget()
+    row.max_requests_per_day = _max_requests_per_day()
+    session.flush()
     return row
 
 
 def check_and_reserve_quota(user_id: str, estimated_tokens: int = 4000) -> None:
+    if not _quota_enforced():
+        return
     today = datetime.now(UTC).date()
     with session_scope() as session:
         row = _ensure_quota_row(session, user_id)
