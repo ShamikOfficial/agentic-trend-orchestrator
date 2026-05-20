@@ -13,8 +13,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# API deps (includes icalendar for calendar routes); same set as nixpacks / Railway.
+COPY requirements-api.txt .
+RUN pip install -r requirements-api.txt
 
 COPY . .
 

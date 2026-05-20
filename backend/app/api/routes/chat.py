@@ -65,6 +65,7 @@ class ChatExtractTasksRequest(BaseModel):
     chat_type: Literal["dm", "group"]
     target_id: str = Field(min_length=1)
     force: bool = False
+    client_timezone: str | None = None
 
 
 class SuggestTimeSlotsRequest(BaseModel):
@@ -669,9 +670,10 @@ def list_task_analysis_sections(
     chat_key = _resolve_chat_key(user_id, chat_type, target_id)
     all_messages = _get_messages_for_chat(user_id, chat_type, target_id)
     last_analyzed_id = chat_repo.get_analysis_state(chat_key)
-    unanalyzed = task_analysis_batches.messages_after_id(all_messages, last_analyzed_id)
-    batch_size = task_analysis_batches.task_extract_batch_size()
     sections = chat_repo.list_analysis_batches(chat_key)
+    analyzed_ids = task_analysis_batches.analyzed_message_ids_from_batches(sections)
+    unanalyzed = task_analysis_batches.unanalyzed_messages(all_messages, analyzed_ids)
+    batch_size = task_analysis_batches.task_extract_batch_size()
     return {
         "batch_size": batch_size,
         "sections": sections,
@@ -691,18 +693,32 @@ def extract_tasks(
     all_messages = _get_messages_for_chat(user_id, payload.chat_type, payload.target_id)
     last_analyzed_id = chat_repo.get_analysis_state(chat_key)
     next_batch_index = chat_repo.count_analysis_batches(chat_key)
+    prior_batches = chat_repo.list_analysis_batches(chat_key)
     batch_size = (
         task_analysis_batches.task_extract_force_count()
         if payload.force
         else task_analysis_batches.task_extract_batch_size()
     )
-    unanalyzed = task_analysis_batches.messages_after_id(all_messages, last_analyzed_id)
+    analyzed_ids = task_analysis_batches.analyzed_message_ids_from_batches(prior_batches)
+    unanalyzed = task_analysis_batches.unanalyzed_messages(all_messages, analyzed_ids)
+
+    if not unanalyzed and prior_batches:
+        return {
+            "status": "already_analyzed",
+            "unanalyzed_count": 0,
+            "threshold": batch_size,
+            "pending_until_analyze": 0,
+            "suggestions": [],
+            "analysis_batch": None,
+            "message": "All chat messages were already analyzed for tasks. Send a new message first.",
+        }
 
     selected = task_analysis_batches.select_messages_for_extraction(
         all_messages,
         last_analyzed_id=last_analyzed_id,
         next_batch_index=next_batch_index,
         force=payload.force,
+        prior_batches=prior_batches,
     )
 
     if selected is None:
@@ -728,11 +744,29 @@ def extract_tasks(
             new_messages,
             linked_items,
             user_id=user_id,
+            client_timezone=payload.client_timezone,
         )
     except (LlmError, LlmQuotaError) as exc:
         raise _llm_http_error(exc) from exc
 
-    suggestions = task_analysis_batches.attach_batch_to_suggestions(suggestions, batch_meta)
+    fresh_linked = []
+    for item in linked_items:
+        loaded = workflow_repo.get_workflow_item(item.item_id)
+        if loaded:
+            fresh_linked.append(loaded)
+
+    suggestions = task_analysis_batches.attach_message_source_to_suggestions(
+        suggestions,
+        batch_meta,
+        new_messages,
+    )
+    suggestions = task_extractor.finalize_task_suggestions(
+        suggestions,
+        fresh_linked,
+        batch_messages=new_messages,
+        all_messages=all_messages,
+        client_timezone=payload.client_timezone,
+    )
 
     chat_repo.set_analysis_state(chat_key, batch_meta["last_message_id"])
     chat_repo.add_analysis_batch(
@@ -808,6 +842,11 @@ def apply_task_action(
         if not existing:
             raise HTTPException(status_code=404, detail="Workflow item not found.")
         data = existing.model_dump()
+        desc = (payload.description or "").strip()
+        if not desc and payload.update_fields:
+            desc = str(payload.update_fields.get("description") or "").strip()
+        if desc:
+            data["description"] = desc
         if payload.update_fields:
             sched = _parse_schedule_update_fields(payload.update_fields)
             uf = payload.update_fields or {}
@@ -825,6 +864,9 @@ def apply_task_action(
             if not (data.get("linked_trend") or "").lower().startswith("chat"):
                 data["linked_trend"] = f"chat:{chat_key}"
         _stamp_message_source(data, payload)
+        mid = (payload.source_last_message_id or "").strip()
+        if mid:
+            data["source_message_ids"] = [mid]
         data["updated_at"] = datetime.now(UTC)
         updated = WorkflowItem(**data)
         workflow_repo.save_workflow_item(updated)

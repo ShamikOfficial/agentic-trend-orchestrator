@@ -15,8 +15,12 @@ import {
   X,
 } from "lucide-react";
 import { TaskScheduleEditor } from "@/components/workflow/task-schedule-editor";
+import { TaskChatLink } from "@/components/workflow/task-chat-link";
 import { TasksKanbanBoard } from "@/components/workflow/tasks-kanban-board";
 import { TasksMonthCalendar } from "@/components/workflow/tasks-month-calendar";
+import { getAuthUser } from "@/lib/auth-store";
+import { listChatUsers, listGroups } from "@/lib/chat-api";
+import { workflowItemHasChatLink } from "@/lib/chat-link-utils";
 import {
   addWorkflowComment,
   createWorkflowItem,
@@ -61,6 +65,31 @@ export default function WorkflowPage() {
   const [commentText, setCommentText] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
   const [viewMode, setViewMode] = useState<TasksViewMode>("board");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [chatUsers, setChatUsers] = useState<{ user_id: string; display_name: string; username: string }[]>([]);
+  const [chatGroups, setChatGroups] = useState<{ group_id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    setCurrentUserId(getAuthUser()?.user_id ?? "");
+    void (async () => {
+      try {
+        const [usersResponse, groupsResponse] = (await Promise.all([
+          listChatUsers(""),
+          listGroups(""),
+        ])) as [
+          { items: { user_id: string; display_name: string; username: string }[] },
+          { items: { group_id: string; name: string }[] },
+        ];
+        setChatUsers(usersResponse.items ?? []);
+        setChatGroups(
+          (groupsResponse.items ?? []).map((g) => ({ group_id: g.group_id, name: g.name })),
+        );
+      } catch {
+        setChatUsers([]);
+        setChatGroups([]);
+      }
+    })();
+  }, []);
 
   async function refreshItems() {
     const response = await listWorkflowItems();
@@ -401,8 +430,19 @@ export default function WorkflowPage() {
                   onError={(msg) => setFlashMessage(msg)}
                 />
                 <div><span className="text-[#9a9ea6]">Project: </span><span className="font-medium text-[#9810fa]">{selectedItem.project || "General"}</span></div>
-                {selectedItem.linked_trend ? (
-                  <div><span className="text-[#9a9ea6]">Linked: </span><span className="font-medium text-[#101828]">{selectedItem.linked_trend}</span></div>
+                {workflowItemHasChatLink(selectedItem) ? (
+                  <TaskChatLink
+                    item={selectedItem}
+                    currentUserId={currentUserId}
+                    users={chatUsers}
+                    groups={chatGroups}
+                    className="text-base"
+                  />
+                ) : selectedItem.linked_trend ? (
+                  <div>
+                    <span className="text-[#9a9ea6]">Linked: </span>
+                    <span className="font-medium text-[#101828]">{selectedItem.linked_trend}</span>
+                  </div>
                 ) : null}
                 <div className="flex items-center gap-1.5 rounded-lg bg-[#fef3c7] px-2 py-1">
                   <BarChart2 size={16} className="text-[#d97706]" />

@@ -3,6 +3,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
+import { TaskChatLink } from "@/components/workflow/task-chat-link";
+import { getAuthUser } from "@/lib/auth-store";
+import { listChatUsers, listGroups } from "@/lib/chat-api";
+import { workflowItemHasChatLink } from "@/lib/chat-link-utils";
 import { getWorkflowItem, updateWorkflowItem } from "@/lib/workflow-api";
 import type { WorkflowItem, WorkflowStage } from "@/types/api";
 
@@ -23,6 +27,31 @@ export default function WorkflowItemDetailPage() {
   const [linksInput, setLinksInput] = useState("");
   const [message, setMessage] = useState("Loading...");
   const [isBusy, setIsBusy] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [chatUsers, setChatUsers] = useState<{ user_id: string; display_name: string; username: string }[]>([]);
+  const [chatGroups, setChatGroups] = useState<{ group_id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    setCurrentUserId(getAuthUser()?.user_id ?? "");
+    void (async () => {
+      try {
+        const [usersResponse, groupsResponse] = (await Promise.all([
+          listChatUsers(""),
+          listGroups(""),
+        ])) as [
+          { items: { user_id: string; display_name: string; username: string }[] },
+          { items: { group_id: string; name: string }[] },
+        ];
+        setChatUsers(usersResponse.items ?? []);
+        setChatGroups(
+          (groupsResponse.items ?? []).map((g) => ({ group_id: g.group_id, name: g.name })),
+        );
+      } catch {
+        setChatUsers([]);
+        setChatGroups([]);
+      }
+    })();
+  }, []);
 
   async function loadItem() {
     try {
@@ -115,10 +144,24 @@ export default function WorkflowItemDetailPage() {
             <span className="text-sm font-medium">Due Date</span>
             <input className="h-11 w-full rounded-md border bg-background px-3 text-sm" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
           </label>
-          <label className="space-y-2">
+          <div className="space-y-2 md:col-span-2">
             <span className="text-sm font-medium">Linked Context</span>
-            <input className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={linkedTrend} onChange={(event) => setLinkedTrend(event.target.value)} />
-          </label>
+            {item && workflowItemHasChatLink(item) ? (
+              <TaskChatLink
+                item={item}
+                currentUserId={currentUserId}
+                users={chatUsers}
+                groups={chatGroups}
+                className="text-sm"
+              />
+            ) : (
+              <input
+                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
+                value={linkedTrend}
+                onChange={(event) => setLinkedTrend(event.target.value)}
+              />
+            )}
+          </div>
           <label className="space-y-2">
             <span className="text-sm font-medium">Created On</span>
             <input className="h-11 w-full rounded-md border bg-muted px-3 text-sm text-muted-foreground" value={item?.created_at ? new Date(item.created_at).toLocaleString() : "-"} readOnly />

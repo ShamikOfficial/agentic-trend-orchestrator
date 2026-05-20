@@ -2,9 +2,8 @@
 
 import { ChangeEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowUpRight,
   ChevronRight,
   CirclePlus,
   FilePenLine,
@@ -21,7 +20,6 @@ import {
   Smile,
   Sparkles,
   Trash2,
-  Users,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -51,12 +49,18 @@ import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
 import { loginPathWithReason } from "@/lib/auth-redirect";
 import { ChatInfoCalendar } from "@/components/chat/chat-info-calendar";
 import { ChatSchedulePicker } from "@/components/chat/chat-schedule-picker";
+import { SuggestionScheduleEditor } from "@/components/chat/suggestion-schedule-editor";
 import {
   isAvailabilityQuestion,
   loadStoredExternalEvents,
   hasRequiredScheduleFields,
   mergeTaskSuggestions,
+  reindexSuggestionRecord,
+  enrichSuggestionWithSchedule,
+  formatScheduleLabel,
+  labelsFromScheduleFields,
   scheduleFieldsFromSuggestions,
+  suggestionHasPrefilledSchedule,
   suggestionNeedsSchedule,
 } from "@/lib/schedule-utils";
 import type { ChatTaskAnalysisSection, ChatTaskSuggestion } from "@/types/api";
@@ -124,6 +128,7 @@ function parseChatAiIntent(text: string): { isAskAi: boolean; question: string |
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { status: sessionStatus } = useSession();
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState("");
@@ -302,6 +307,19 @@ export default function ChatPage() {
         ])) as [{ items: ChatUser[] }, { items: ChatGroup[] }];
         setUsers(usersResponse.items);
         setGroups(groupsResponse.items);
+
+        const chatFromUrl = searchParams.get("chat");
+        const targetFromUrl = searchParams.get("target")?.trim() ?? "";
+        if (targetFromUrl && (chatFromUrl === "dm" || chatFromUrl === "group")) {
+          setActiveTargetId(targetFromUrl);
+          setChatMode(chatFromUrl);
+          const response = ((chatFromUrl === "dm"
+            ? await listDirectMessages(apiAuth, targetFromUrl)
+            : await listGroupMessages(apiAuth, targetFromUrl)) as ListResponse<ChatMessage>);
+          setMessages(response.items);
+          return;
+        }
+
         if (!activeTargetId) {
           if (usersResponse.items.length > 0) {
             const topDm = usersResponse.items[0];
@@ -321,7 +339,7 @@ export default function ChatPage() {
         handleApiError(error);
       }
     })();
-  }, [authed, apiAuth, handleApiError, activeTargetId]);
+  }, [authed, apiAuth, handleApiError, activeTargetId, searchParams]);
 
   async function refreshGroups(currentToken = apiAuth) {
     try {
@@ -424,12 +442,14 @@ export default function ChatPage() {
         setAiReply({ content: result.answer });
         const aiSuggestions = result.task_suggestions;
         if (aiSuggestions && aiSuggestions.length > 0) {
-          setTaskSuggestions((prev) => mergeTaskSuggestions(prev, aiSuggestions));
-          setSuggestionScheduleFields((prev) => ({
-            ...prev,
-            ...scheduleFieldsFromSuggestions(aiSuggestions),
-          }));
-          setSuggestionScheduleLabels({});
+          setTaskSuggestions((prev) => {
+            const enriched = aiSuggestions.map((s) => enrichSuggestionWithSchedule(s));
+            const merged = mergeTaskSuggestions(prev, enriched);
+            const prefilled = scheduleFieldsFromSuggestions(merged);
+            setSuggestionScheduleFields(prefilled);
+            setSuggestionScheduleLabels(labelsFromScheduleFields(prefilled));
+            return merged;
+          });
           setTaskPanelOpen(true);
         }
         if (availability || result.show_schedule_picker) {
@@ -556,7 +576,15 @@ export default function ChatPage() {
         chat_type: chatMode,
         target_id: activeTargetId,
         force,
+        client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
+      if (result.status === "already_analyzed") {
+        setTaskSuggestions([]);
+        setSuggestionScheduleFields({});
+        setSuggestionScheduleLabels({});
+        setFlash(result.message ?? "All messages already analyzed. Send a new message first.");
+        return;
+      }
       if (result.status === "pending") {
         const need = result.pending_until_analyze ?? Math.max(0, (result.threshold ?? taskAnalysisBatchSize) - result.unanalyzed_count);
         if (force) {
@@ -569,22 +597,20 @@ export default function ChatPage() {
       const extracted = result.suggestions ?? [];
       void refreshAnalysisSections();
       if (result.status === "analyzed" && extracted.length > 0) {
-        setTaskSuggestions((prev) =>
-          force ? extracted : mergeTaskSuggestions(prev, extracted),
-        );
-        setSuggestionScheduleFields(
-          force
-            ? scheduleFieldsFromSuggestions(extracted)
-            : (prev) => ({ ...prev, ...scheduleFieldsFromSuggestions(extracted) }),
-        );
-        setSuggestionScheduleLabels({});
+        setTaskSuggestions(() => {
+          const enriched = extracted.map((s) => enrichSuggestionWithSchedule(s));
+          const prefilled = scheduleFieldsFromSuggestions(enriched);
+          setSuggestionScheduleFields(prefilled);
+          setSuggestionScheduleLabels(labelsFromScheduleFields(prefilled));
+          return enriched;
+        });
         setTaskPanelOpen(true);
       } else if (result.status === "analyzed" && extracted.length === 0) {
         const batch = result.analysis_batch;
         setFlash(
           batch
-            ? `Section #${batch.batch_index + 1} analyzed — no actionable tasks in those ${batch.message_count} messages.`
-            : "No actionable tasks found in this message section.",
+            ? `Section #${batch.batch_index + 1} analyzed — no new task changes (already applied or up to date).`
+            : "No new task changes — items already match the chat.",
         );
       }
     } catch (error) {
@@ -606,10 +632,14 @@ export default function ChatPage() {
     }
     setApplyingIndex(index);
     try {
-      const mergedUpdateFields = {
+      const mergedUpdateFields: Record<string, string> = {
         ...(suggestion.update_fields ?? {}),
         ...scheduleFields,
       };
+      const desc = (suggestion.description || mergedUpdateFields.description || "").trim();
+      if (desc) {
+        mergedUpdateFields.description = desc;
+      }
       await applyTaskAction(apiAuth, {
         action: suggestion.action,
         title: suggestion.title || undefined,
@@ -625,9 +655,12 @@ export default function ChatPage() {
         source_message_batch_index: suggestion.source_message_batch_index,
         source_message_ids: suggestion.source_message_ids,
         source_first_message_id: suggestion.source_first_message_id,
-        source_last_message_id: suggestion.source_last_message_id,
+        source_last_message_id:
+          suggestion.source_message_id ?? suggestion.source_last_message_id,
       });
       setTaskSuggestions((prev) => prev.filter((_, i) => i !== index));
+      setSuggestionScheduleFields((prev) => reindexSuggestionRecord(prev, index));
+      setSuggestionScheduleLabels((prev) => reindexSuggestionRecord(prev, index));
       setWorkItemsRefreshKey((k) => k + 1);
       const when = suggestionScheduleLabels[index];
       setFlash(
@@ -644,6 +677,8 @@ export default function ChatPage() {
 
   function handleRejectSuggestion(index: number) {
     setTaskSuggestions((prev) => prev.filter((_, i) => i !== index));
+    setSuggestionScheduleFields((prev) => reindexSuggestionRecord(prev, index));
+    setSuggestionScheduleLabels((prev) => reindexSuggestionRecord(prev, index));
   }
 
   async function handleDeleteMessage(messageId: string) {
@@ -1429,28 +1464,37 @@ export default function ChatPage() {
                       ) : null}
                       {suggestion.update_fields && Object.keys(suggestion.update_fields).length > 0 ? (
                         <div className="mb-1 text-sm text-muted-foreground">
-                          Updates: {Object.entries(suggestion.update_fields).map(([k, v]) => `${k}→${v}`).join(", ")}
+                          Updates:{" "}
+                          {Object.entries(suggestion.update_fields)
+                            .filter(([k]) => !["scheduled_start", "scheduled_end", "due_date"].includes(k))
+                            .map(([k, v]) => `${k}→${v}`)
+                            .join(", ")}
+                          {suggestionHasPrefilledSchedule(suggestion) ? (
+                            <span className="ml-1 font-medium text-indigo-800">
+                              · {formatScheduleLabel({
+                                due_date: suggestion.update_fields.due_date,
+                                scheduled_start: suggestion.update_fields.scheduled_start ?? "",
+                                scheduled_end: suggestion.update_fields.scheduled_end ?? "",
+                              })}
+                            </span>
+                          ) : null}
                         </div>
-                      ) : null}
-                      {suggestionScheduleLabels[idx] ? (
-                        <p className="mb-1 text-sm font-medium text-indigo-800">
-                          Scheduled: {suggestionScheduleLabels[idx]}
-                        </p>
                       ) : null}
                       {activeTargetId && suggestionNeedsSchedule(suggestion) ? (
                         <div className="mb-1.5 rounded-md border border-indigo-100 bg-indigo-50/80 p-2">
-                          <p className="mb-1 text-sm font-semibold text-indigo-900">
-                            Date &amp; time required *
+                          <p className="mb-1.5 text-sm font-semibold text-indigo-900">
+                            {suggestionHasPrefilledSchedule(suggestion) ||
+                            hasRequiredScheduleFields(suggestionScheduleFields[idx], suggestion)
+                              ? "Date & time (edit if needed)"
+                              : "Date & time (required)"}
                           </p>
-                          <ChatSchedulePicker
+                          <SuggestionScheduleEditor
                             apiAuth={apiAuth}
                             chatType={chatMode}
                             targetId={activeTargetId}
-                            taskTitle={suggestion.title || suggestion.comment || "Task"}
-                            taskDescription={suggestion.description}
-                            preferredDate={suggestion.update_fields?.due_date?.slice(0, 10)}
-                            compact
-                            onSelect={(fields, label) => {
+                            suggestion={suggestion}
+                            fields={suggestionScheduleFields[idx]}
+                            onChange={(fields, label) => {
                               setSuggestionScheduleFields((prev) => ({ ...prev, [idx]: fields }));
                               setSuggestionScheduleLabels((prev) => ({ ...prev, [idx]: label }));
                             }}
@@ -1828,20 +1872,6 @@ export default function ChatPage() {
           <p className="mt-2 text-center text-sm text-muted-foreground">
             Inserts <code className="rounded bg-black/5 px-1">@chat</code> — add your question, then send.
           </p>
-          <div className="mt-3 flex items-center justify-center gap-4 border-t border-[#f3f4f6] pt-3">
-            <button type="button" className="flex items-center gap-1 text-base text-[#6a7282] hover:text-[#101828]" onClick={() => setFlash("Members panel is shown on the right.")}>
-              <Users className="h-3.5 w-3.5" />
-              Members
-            </button>
-            <button type="button" className="flex items-center gap-1 text-base text-[#6a7282] hover:text-[#101828]" onClick={() => setFlash("Shared media is UI-only for now.")}>
-              <Paperclip className="h-3.5 w-3.5" />
-              Files
-            </button>
-            <button type="button" className="flex items-center gap-1 text-base text-[#6a7282] hover:text-[#101828]" onClick={() => setFlash("AI memory is UI-only for now.")}>
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              AI Memory
-            </button>
-          </div>
         </div>
         </div>
       </aside>

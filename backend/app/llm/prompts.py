@@ -38,28 +38,55 @@ CHAT_TASK_EXTRACT_PROMPT = PromptTemplate(
         "[\n"
         "  {{\n"
         '    "action": "create|update|comment|close",\n'
+        '    "source_message_id": "message_id from the NEW CHAT MESSAGES line that triggered this",\n'
         '    "reasoning": "why this action was chosen",\n'
         '    "title": "task title (for create)",\n'
         '    "description": "task description (for create)",\n'
         '    "owner": "person name or empty string (for create)",\n'
         '    "priority": "low|medium|high (for create)",\n'
         '    "existing_item_id": "item_id of matching workflow item (for update/comment, empty for create)",\n'
+        '    "schedule": {{\n'
+        '      "due_date": "YYYY-MM-DD or empty",\n'
+        '      "scheduled_start": "ISO-8601 with timezone or empty",\n'
+        '      "scheduled_end": "ISO-8601 with timezone or empty"\n'
+        "    }},\n"
         '    "update_fields": {{"stage": "Idea|Brief|Production|Review|Publish", "description": "...", '
-        '"due_date": "YYYY-MM-DD", "scheduled_start": "ISO-8601", "scheduled_end": "ISO-8601", "owner": "name"}} ,\n'
+        '"owner": "name"}},\n'
         '    "comment": "comment text (for comment action)"\n'
         "  }}\n"
         "]\n\n"
         "Rules:\n"
         "- Output JSON array only, no markdown fences, no extra text.\n"
+        "- Only extract from NEW CHAT MESSAGES — never re-suggest tasks already reflected in EXISTING WORKFLOW ITEMS.\n"
+        "- \"schedule meet tomorrow\" and \"schedule meet on <that calendar date>\" are the SAME — return [].\n"
+        "- At most ONE suggestion per source_message_id and per existing_item_id.\n"
         "- Only extract genuinely actionable tasks, not greetings or general chat.\n"
-        "- If an existing item is semantically related, prefer update or comment over create.\n"
+        "- Return [] if the new messages only repeat information already captured in EXISTING WORKFLOW ITEMS.\n"
+        "- If an existing item is semantically related, prefer update or comment over create — never create a duplicate.\n"
+        '- Do NOT emit "update" unless at least one field in update_fields actually changes the existing item.\n'
+        "- If nothing new was said about an existing task (same schedule, same owner, same status), omit it entirely.\n"
         '- If a task is reported as finished/completed/done, use "close" action.\n'
         '- If a done/published item should be reopened, use update with stage change.\n'
         "- Valid stage values are ONLY: Idea, Brief, Production, Review, Publish. Do NOT use any other stage names.\n"
         "- For create, leave existing_item_id as empty string.\n"
-        "- When messages mention deadlines or meeting times, include due_date and scheduled_start/end in update_fields.\n"
+        "- CURRENT DATETIME (fallback clock): {reference_datetime}\n"
+        "- Each chat line includes message_id= and sent_at= — resolve \"tomorrow\", \"next Tuesday\", etc. "
+        "relative to THAT message's sent_at, not the fallback clock, when they differ.\n"
+        "- SCHEDULING (critical): When the user mentions a date, day, or time, you MUST set these in update_fields "
+        "(not only in description):\n"
+        "  due_date (YYYY-MM-DD), scheduled_start (ISO-8601 with timezone), scheduled_end (ISO-8601 with timezone).\n"
+        "- Resolve relative phrases using CURRENT DATETIME: \"next Monday\", \"tomorrow\", \"this Friday\", \"at 3pm\", etc.\n"
+        "- If only a day is given (no clock time), use 10:00–11:00 local time on that day for meetings "
+        "(ISO datetimes must include timezone offset).\n"
+        "- scheduled_end must be 60 minutes after scheduled_start unless a duration is stated.\n"
+        "- Never put the only copy of the meeting date/time solely in description — always duplicate into due_date and scheduled_*.\n"
+        "- For reschedule messages, update due_date and scheduled_start/end to the NEW time; description may summarize but schedule fields are required.\n"
+        "- Only omit schedule fields when the message has no date, day, or time hint at all.\n"
         "- Do NOT suggest creating a task that already appears in EXISTING WORKFLOW ITEMS (same or very similar title).\n"
         "- Do NOT output duplicate suggestions in your JSON array (one entry per distinct action).\n"
+        "- At most ONE update per existing_item_id — use the latest message only, not every historical reschedule.\n"
+        "- Do NOT suggest updates for items already in Publish stage unless reopening them.\n"
+        "- Skip items whose schedule and description already match the chat request.\n"
         "- For update/comment, existing_item_id is required.\n"
         "- Return empty array [] if no actionable items found.\n\n"
         "EXISTING WORKFLOW ITEMS:\n{existing_items}\n\n"

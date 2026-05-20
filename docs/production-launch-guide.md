@@ -183,7 +183,7 @@ pg_dump "$DATABASE_URL" | gzip > backup-$(date +%F).sql.gz
 
 ### Model 4 — Free-tier-friendly models
 
-- Default **Gemma** (`gemma-3-27b-it`) and `GEMINI_FALLBACK_MODELS` (already in `.env.example`).
+- Default **Gemma 4** (`gemma-4-31b-it`) and `GEMINI_FALLBACK_MODELS` (e.g. `gemma-4-26b-a4b-it`; see `.env.example`).
 - Set **GCP / Google AI billing budgets and alerts**.
 - Gate **trend analytics** (Whisper + GPT-4o) behind BYOK or admin-only.
 

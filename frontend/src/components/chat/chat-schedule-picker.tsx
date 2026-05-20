@@ -44,6 +44,12 @@ export function ChatSchedulePicker({
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
 
   useEffect(() => {
+    if (preferredDate) {
+      setCustomDate(preferredDate);
+    }
+  }, [preferredDate]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     void (async () => {

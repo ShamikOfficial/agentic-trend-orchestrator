@@ -357,7 +357,12 @@ export async function listChatTaskAnalysisSections(
 
 export async function extractChatTasks(
   token: string,
-  payload: { chat_type: "dm" | "group"; target_id: string; force?: boolean },
+  payload: {
+    chat_type: "dm" | "group";
+    target_id: string;
+    force?: boolean;
+    client_timezone?: string;
+  },
 ) {
   if (!API_BASE_URL) {
     throw new ChatApiError(
