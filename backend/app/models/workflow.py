@@ -17,9 +17,16 @@ class WorkflowItem(BaseModel):
     description: str = ""
     owner: str | None = None
     linked_trend: str | None = None
+    source_chat_key: str | None = None
+    source_message_batch_index: int | None = None
+    source_message_ids: list[str] = Field(default_factory=list)
+    source_first_message_id: str | None = None
+    source_last_message_id: str | None = None
     project: str = "General"
     stage: WorkflowStage = "Idea"
     due_date: date | None = None
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
     comments: list[str] = Field(default_factory=list)
     links: list[str] = Field(default_factory=list)
     attachments: list[str] = Field(default_factory=list)
@@ -33,6 +40,8 @@ class Milestone(BaseModel):
     title: str
     owner: str | None = None
     due_date: date | None = None
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
     criteria: list[str] = Field(default_factory=list)
     status: MilestoneStatus = "open"
     notes: str = ""

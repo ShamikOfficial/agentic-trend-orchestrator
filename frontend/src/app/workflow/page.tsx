@@ -5,13 +5,18 @@ import {
   AlertCircle,
   BarChart2,
   Calendar,
+  CalendarDays,
   CheckSquare,
   Clock,
   ExternalLink,
+  LayoutGrid,
   MessageSquare,
   RotateCcw,
   X,
 } from "lucide-react";
+import { TaskScheduleEditor } from "@/components/workflow/task-schedule-editor";
+import { TasksKanbanBoard } from "@/components/workflow/tasks-kanban-board";
+import { TasksMonthCalendar } from "@/components/workflow/tasks-month-calendar";
 import {
   addWorkflowComment,
   createWorkflowItem,
@@ -19,60 +24,20 @@ import {
   listWorkflowItems,
   updateWorkflowStage,
 } from "@/lib/workflow-api";
+import {
+  defaultStageForColumn,
+  inferPriority,
+  inferSource,
+  PRIORITY_COLORS,
+  SOURCE_COLORS,
+  toUiColumn,
+  type UiColumn,
+} from "@/lib/workflow-task-utils";
 import type { WorkflowActivityLog, WorkflowItem, WorkflowStage } from "@/types/api";
 
-type UiColumn = "To Do" | "In Progress" | "In Review" | "Done";
+type TasksViewMode = "board" | "calendar";
 
-const COLUMNS: UiColumn[] = ["To Do", "In Progress", "In Review", "Done"];
 const STAGE_OPTIONS: WorkflowStage[] = ["Idea", "Brief", "Production", "Review", "Publish"];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  High: "bg-[#fee2e2] text-[#dc2626]",
-  Medium: "bg-[#fff7ed] text-[#f54900]",
-  Low: "bg-[#f3f4f6] text-[#6a7282]",
-};
-
-const SOURCE_COLORS: Record<string, string> = {
-  Chat: "bg-[#e0f2fe] text-[#0284c7]",
-  Script: "bg-[#dcfce7] text-[#16a34a]",
-  AI: "bg-[#faf5ff] text-[#9810fa]",
-  "Video Report": "bg-[#fef3c7] text-[#d97706]",
-  "Project Progress": "bg-[#f3f4f6] text-[#6a7282]",
-};
-
-function toUiColumn(stage: WorkflowStage): UiColumn {
-  if (stage === "Production") return "In Progress";
-  if (stage === "Review") return "In Review";
-  if (stage === "Publish") return "Done";
-  return "To Do";
-}
-
-function defaultStageForColumn(column: UiColumn): WorkflowStage {
-  if (column === "In Progress") return "Production";
-  if (column === "In Review") return "Review";
-  if (column === "Done") return "Publish";
-  return "Idea";
-}
-
-function inferPriority(item: WorkflowItem): "High" | "Medium" | "Low" {
-  if (!item.due_date) return "Medium";
-  const due = new Date(`${item.due_date}T00:00:00`);
-  const today = new Date();
-  const ms = due.getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const days = Math.floor(ms / 86400000);
-  if (days <= 1) return "High";
-  if (days <= 4) return "Medium";
-  return "Low";
-}
-
-function inferSource(item: WorkflowItem): "Chat" | "Script" | "AI" | "Video Report" | "Project Progress" {
-  const linked = (item.linked_trend ?? "").toLowerCase();
-  if (linked.includes("chat")) return "Chat";
-  if (linked.includes("script")) return "Script";
-  if (linked.includes("video") || linked.includes("report")) return "Video Report";
-  if (linked.includes("progress")) return "Project Progress";
-  return "AI";
-}
 
 export default function WorkflowPage() {
   const [items, setItems] = useState<WorkflowItem[]>([]);
@@ -95,6 +60,7 @@ export default function WorkflowPage() {
   const [flashMessage, setFlashMessage] = useState("");
   const [commentText, setCommentText] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
+  const [viewMode, setViewMode] = useState<TasksViewMode>("board");
 
   async function refreshItems() {
     const response = await listWorkflowItems();
@@ -255,25 +221,25 @@ export default function WorkflowPage() {
   }
 
   return (
-    <main className="min-h-full bg-[#f9fafb] px-8 py-7">
+    <main className="min-h-full bg-[#f9fafb] px-8 py-7 text-base text-[#101828]">
       <div className="mx-auto flex w-full max-w-[1500px] min-w-0 flex-col">
         <div className="mb-6 flex items-start justify-between gap-3">
           <div>
-            <h1 className="mb-1 text-[32px] font-bold text-[#101828]">My Tasks</h1>
-            <p className="text-[15px] text-[#6a7282]">Track all tasks assigned to you across projects and groups.</p>
+            <h1 className="mb-1 text-3xl font-bold text-[#101828] md:text-4xl">My Tasks</h1>
+            <p className="text-lg text-[#6a7282]">Track all tasks assigned to you across projects and groups.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowCreate(true)}
-              className="rounded-xl border border-[#101828] bg-[#101828] px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#1e293b]"
+              className="rounded-xl border border-[#101828] bg-[#101828] px-5 py-2.5 text-base font-semibold text-white transition-colors hover:bg-[#1e293b]"
             >
               New Task
             </button>
             <button
               type="button"
               onClick={() => setShowLogs(true)}
-              className="rounded-xl border border-[#e5e7eb] bg-white px-4 py-2 text-[12px] font-semibold text-[#364153] transition-colors hover:bg-[#f3f4f6]"
+              className="rounded-xl border border-[#e5e7eb] bg-white px-5 py-2.5 text-base font-semibold text-[#364153] transition-colors hover:bg-[#f3f4f6]"
             >
               Activity Log
             </button>
@@ -283,19 +249,19 @@ export default function WorkflowPage() {
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff7ed] text-[#f54900]"><Calendar size={16} /></div>
-            <div><p className="text-[24px] font-extrabold text-[#f54900]">{summary.dueToday}</p><p className="text-[12px] text-[#6a7282]">Due today</p></div>
+            <div><p className="text-3xl font-extrabold text-[#f54900]">{summary.dueToday}</p><p className="text-base text-[#6a7282]">Due today</p></div>
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e0f2fe] text-[#0ea5e9]"><Clock size={16} /></div>
-            <div><p className="text-[24px] font-extrabold text-[#0ea5e9]">{summary.inProgress}</p><p className="text-[12px] text-[#6a7282]">In progress</p></div>
+            <div><p className="text-3xl font-extrabold text-[#0ea5e9]">{summary.inProgress}</p><p className="text-base text-[#6a7282]">In progress</p></div>
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#faf5ff] text-[#9810fa]"><RotateCcw size={16} /></div>
-            <div><p className="text-[24px] font-extrabold text-[#9810fa]">{summary.inReview}</p><p className="text-[12px] text-[#6a7282]">Waiting for review</p></div>
+            <div><p className="text-3xl font-extrabold text-[#9810fa]">{summary.inReview}</p><p className="text-base text-[#6a7282]">Waiting for review</p></div>
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fee2e2] text-[#dc2626]"><AlertCircle size={16} /></div>
-            <div><p className="text-[24px] font-extrabold text-[#dc2626]">{summary.overdue}</p><p className="text-[12px] text-[#6a7282]">Overdue</p></div>
+            <div><p className="text-3xl font-extrabold text-[#dc2626]">{summary.overdue}</p><p className="text-base text-[#6a7282]">Overdue</p></div>
           </div>
         </div>
 
@@ -305,7 +271,7 @@ export default function WorkflowPage() {
               key={f}
               type="button"
               onClick={() => setSelectedProject(f)}
-              className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+              className={`rounded-full border px-3 py-1.5 text-base font-medium transition-colors ${
                 selectedProject === f
                   ? "border-[#101828] bg-[#101828] text-white"
                   : "border-[#e5e7eb] bg-white text-[#364153] hover:border-[#101828]"
@@ -320,7 +286,7 @@ export default function WorkflowPage() {
               key={f}
               type="button"
               onClick={() => setSelectedGroup(f)}
-              className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+              className={`rounded-full border px-3 py-1.5 text-base font-medium transition-colors ${
                 selectedGroup === f
                   ? "border-[#9810fa] bg-[#9810fa] text-white"
                   : "border-[#e5e7eb] bg-white text-[#364153] hover:border-[#9810fa]"
@@ -331,99 +297,79 @@ export default function WorkflowPage() {
           ))}
         </div>
 
+        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setViewMode("board")}
+            className={`flex min-h-[72px] items-center justify-center gap-3 rounded-2xl border-2 px-6 py-4 text-lg font-bold transition md:min-h-[80px] md:text-xl ${
+              viewMode === "board"
+                ? "border-[#101828] bg-[#101828] text-white shadow-md"
+                : "border-[#e5e7eb] bg-white text-[#364153] hover:border-[#101828]/40"
+            }`}
+          >
+            <LayoutGrid size={24} />
+            To Do
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("calendar")}
+            className={`flex min-h-[72px] items-center justify-center gap-3 rounded-2xl border-2 px-6 py-4 text-lg font-bold transition md:min-h-[80px] md:text-xl ${
+              viewMode === "calendar"
+                ? "border-[#9810fa] bg-[#9810fa] text-white shadow-md"
+                : "border-[#e5e7eb] bg-white text-[#364153] hover:border-[#9810fa]/40"
+            }`}
+          >
+            <CalendarDays size={24} />
+            Calendar
+          </button>
+        </div>
+
         <div className="flex min-h-0 flex-1 gap-5">
-          <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 overflow-x-auto lg:grid-cols-4">
-            {COLUMNS.map((column) => {
-              const columnTasks = tasksByColumn[column];
-              const colColor: Record<UiColumn, string> = {
-                "To Do": "#6a7282",
-                "In Progress": "#0ea5e9",
-                "In Review": "#9810fa",
-                "Done": "#16a34a",
-              };
-              return (
-                <section
-                  key={column}
-                  className={`flex min-w-[220px] flex-col rounded-xl transition-colors ${dragOverColumn === column ? "bg-[#f3f4f6]/70" : ""}`}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    setDragOverColumn(column);
-                  }}
-                  onDragLeave={() => setDragOverColumn((current) => (current === column ? null : current))}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const itemId = draggedItemId;
-                    setDraggedItemId(null);
-                    setDragOverColumn(null);
-                    if (!itemId) return;
-                    const item = items.find((entry) => entry.item_id === itemId);
-                    if (!item) return;
-                    void handleMoveToStage(
-                      item,
-                      defaultStageForColumn(column),
-                      `Dragged task to ${column} column.`,
-                    );
-                  }}
-                >
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="text-[13px] font-bold" style={{ color: colColor[column] }}>{column}</span>
-                    <span className="rounded-full bg-[#f3f4f6] px-1.5 py-0.5 text-[11px] font-semibold text-[#6a7282]">{columnTasks.length}</span>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    {columnTasks.map((task) => {
-                      const priority = inferPriority(task);
-                      const source = inferSource(task);
-                      const due = task.due_date ? new Date(`${task.due_date}T00:00:00`).toLocaleDateString() : "No due date";
-                      const commentsCount = task.comments?.length ?? 0;
-                      return (
-                        <button
-                          key={task.item_id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedItemId(task.item_id);
-                            setDetailDismissed(false);
-                          }}
-                          draggable
-                          onDragStart={() => setDraggedItemId(task.item_id)}
-                          onDragEnd={() => {
-                            setDraggedItemId(null);
-                            setDragOverColumn(null);
-                          }}
-                          className={`w-full rounded-xl border bg-white p-3 text-left transition-colors ${
-                            selectedItemId === task.item_id
-                              ? "border-[#9810fa] shadow-sm"
-                              : "border-[#e5e7eb] hover:border-[#d1d5db]"
-                          }`}
-                        >
-                          <p className="mb-2 text-[12px] font-semibold leading-snug text-[#101828]">{task.title}</p>
-                          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${PRIORITY_COLORS[priority]}`}>{priority}</span>
-                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${SOURCE_COLORS[source]}`}>{source}</span>
-                          </div>
-                          <p className="mb-1 text-[10px] font-medium text-[#9810fa]">{task.project || "General"}</p>
-                          <p className="mb-2 text-[10px] text-[#9a9ea6]">{task.owner || "Unassigned"}</p>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 text-[#9a9ea6]"><Calendar size={10} /><span className="text-[10px]">{due}</span></div>
-                            {commentsCount > 0 ? (
-                              <div className="flex items-center gap-0.5 text-[#9a9ea6]"><MessageSquare size={10} /><span className="text-[10px]">{commentsCount}</span></div>
-                            ) : null}
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {columnTasks.length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-[#d1d5db] bg-white px-3 py-5 text-[12px] text-[#9a9ea6]">No tasks</div>
-                    ) : null}
-                  </div>
-                </section>
-              );
-            })}
-          </div>
+          {viewMode === "board" ? (
+            <TasksKanbanBoard
+              tasksByColumn={tasksByColumn}
+              selectedItemId={selectedItemId}
+              dragOverColumn={dragOverColumn}
+              onSelectTask={(itemId) => {
+                setSelectedItemId(itemId);
+                setDetailDismissed(false);
+              }}
+              onDragStart={setDraggedItemId}
+              onDragEnd={() => {
+                setDraggedItemId(null);
+                setDragOverColumn(null);
+              }}
+              onDragOverColumn={setDragOverColumn}
+              onDropOnColumn={(column) => {
+                const itemId = draggedItemId;
+                setDraggedItemId(null);
+                setDragOverColumn(null);
+                if (!itemId) return;
+                const item = items.find((entry) => entry.item_id === itemId);
+                if (!item) return;
+                void handleMoveToStage(
+                  item,
+                  defaultStageForColumn(column),
+                  `Dragged task to ${column} column.`,
+                );
+              }}
+            />
+          ) : (
+            <TasksMonthCalendar
+              tasks={filteredItems}
+              selectedItemId={selectedItemId}
+              onSelectTask={(itemId) => {
+                setSelectedItemId(itemId);
+                setDetailDismissed(false);
+              }}
+            />
+          )}
 
           {selectedItem ? (
-            <aside className="sticky top-6 h-fit w-[268px] shrink-0 rounded-2xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
+
+            <aside className="sticky top-6 h-fit w-[320px] shrink-0 rounded-2xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-start justify-between">
-                <h3 className="text-[13px] font-bold leading-snug text-[#101828]">{selectedItem.title}</h3>
+                <h3 className="text-lg font-bold leading-snug text-[#101828]">{selectedItem.title}</h3>
                 <button
                   type="button"
                   onClick={() => {
@@ -432,49 +378,57 @@ export default function WorkflowPage() {
                   }}
                   className="ml-2 shrink-0 text-[#9a9ea6] transition-colors hover:text-[#101828]"
                 >
-                  <X size={14} />
+                  <X size={18} />
                 </button>
               </div>
 
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_COLORS[inferPriority(selectedItem)]}`}>{inferPriority(selectedItem)}</span>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SOURCE_COLORS[inferSource(selectedItem)]}`}>From {inferSource(selectedItem)}</span>
+                <span className={`rounded-full px-2.5 py-1 text-sm font-semibold ${PRIORITY_COLORS[inferPriority(selectedItem)]}`}>{inferPriority(selectedItem)}</span>
+                <span className={`rounded-full px-2.5 py-1 text-sm font-medium ${SOURCE_COLORS[inferSource(selectedItem)]}`}>From {inferSource(selectedItem)}</span>
               </div>
 
-              <p className="mb-4 text-[12px] leading-relaxed text-[#6a7282]">{selectedItem.description || "No description provided."}</p>
+              <p className="mb-4 text-base leading-relaxed text-[#6a7282]">{selectedItem.description || "No description provided."}</p>
 
-              <div className="mb-4 space-y-2 text-[12px]">
+              <div className="mb-4 space-y-2 text-base">
                 <div><span className="text-[#9a9ea6]">Assignee: </span><span className="font-medium text-[#101828]">{selectedItem.owner || "Unassigned"}</span></div>
-                <div><span className="text-[#9a9ea6]">Due: </span><span className="font-medium text-[#101828]">{selectedItem.due_date ? new Date(`${selectedItem.due_date}T00:00:00`).toLocaleDateString() : "No due date"}</span></div>
+                <TaskScheduleEditor
+                  key={selectedItem.item_id}
+                  item={selectedItem}
+                  onSaved={async () => {
+                    await Promise.all([refreshItems(), refreshLogs()]);
+                    setFlashMessage("Due date saved.");
+                  }}
+                  onError={(msg) => setFlashMessage(msg)}
+                />
                 <div><span className="text-[#9a9ea6]">Project: </span><span className="font-medium text-[#9810fa]">{selectedItem.project || "General"}</span></div>
                 {selectedItem.linked_trend ? (
                   <div><span className="text-[#9a9ea6]">Linked: </span><span className="font-medium text-[#101828]">{selectedItem.linked_trend}</span></div>
                 ) : null}
                 <div className="flex items-center gap-1.5 rounded-lg bg-[#fef3c7] px-2 py-1">
-                  <BarChart2 size={11} className="text-[#d97706]" />
-                  <span className="text-[11px] font-semibold text-[#d97706]">Current stage: {selectedItem.stage}</span>
+                  <BarChart2 size={16} className="text-[#d97706]" />
+                  <span className="text-base font-semibold text-[#d97706]">Current stage: {selectedItem.stage}</span>
                 </div>
               </div>
 
               <div className="border-t border-[#f3f4f6] pt-3">
                 <div className="mb-2 flex items-center gap-1.5">
-                  <MessageSquare size={12} className="text-[#6a7282]" />
-                  <span className="text-[11px] font-semibold text-[#6a7282]">Comments ({selectedItem.comments?.length ?? 0})</span>
+                  <MessageSquare size={16} className="text-[#6a7282]" />
+                  <span className="text-base font-semibold text-[#6a7282]">Comments ({selectedItem.comments?.length ?? 0})</span>
                 </div>
                 {selectedItem.comments && selectedItem.comments.length > 0 ? (
                   <div className="mb-2 max-h-28 space-y-1.5 overflow-y-auto">
                     {selectedItem.comments.map((c, i) => (
-                      <div key={i} className="rounded-lg bg-[#f9fafb] px-2.5 py-1.5 text-[11px] leading-relaxed text-[#364153]">
+                      <div key={i} className="rounded-lg bg-[#f9fafb] px-2.5 py-2 text-base leading-relaxed text-[#364153]">
                         {c}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mb-2 text-[11px] text-[#9a9ea6]">No comments yet.</p>
+                  <p className="mb-2 text-base text-[#9a9ea6]">No comments yet.</p>
                 )}
                 <div className="flex gap-1.5">
                   <input
-                    className="h-7 flex-1 rounded-lg border border-[#e5e7eb] px-2 text-[11px] text-[#101828] placeholder:text-[#9a9ea6]"
+                    className="h-10 flex-1 rounded-lg border border-[#e5e7eb] px-3 text-base text-[#101828] placeholder:text-[#9a9ea6]"
                     placeholder="Add a comment…"
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
@@ -489,7 +443,7 @@ export default function WorkflowPage() {
                     type="button"
                     disabled={commentBusy || !commentText.trim()}
                     onClick={() => void handleAddComment(selectedItem.item_id)}
-                    className="rounded-lg bg-[#101828] px-2.5 text-[10px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg bg-[#101828] px-3 py-2 text-base font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {commentBusy ? "…" : "Add"}
                   </button>
@@ -501,16 +455,16 @@ export default function WorkflowPage() {
                   type="button"
                   onClick={() => void handleMarkDone(selectedItem)}
                   disabled={isBusy}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#101828] py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#101828] py-2 text-base font-medium text-white transition-colors hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <CheckSquare size={13} />
                   Mark as Done
                 </button>
                 <div className="space-y-1 rounded-xl border border-[#e5e7eb] p-2">
-                  <label className="block text-[11px] font-semibold text-[#6a7282]">Change status</label>
+                  <label className="block text-base font-semibold text-[#6a7282]">Change status</label>
                   <div className="flex gap-2">
                     <select
-                      className="h-8 flex-1 rounded-lg border border-[#e5e7eb] bg-white px-2 text-[12px] text-[#101828]"
+                      className="h-10 flex-1 rounded-lg border border-[#e5e7eb] bg-white px-3 text-base text-[#101828]"
                       value={detailTargetStage}
                       onChange={(event) => setDetailTargetStage(event.target.value as WorkflowStage)}
                     >
@@ -524,7 +478,7 @@ export default function WorkflowPage() {
                       type="button"
                       disabled={isBusy || detailTargetStage === selectedItem.stage}
                       onClick={() => void handleMoveToStage(selectedItem, detailTargetStage, "Updated from task detail panel.")}
-                      className="rounded-lg border border-[#101828] bg-[#101828] px-3 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-[#101828] bg-[#101828] px-3 py-2 text-base font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Apply
                     </button>
@@ -533,7 +487,7 @@ export default function WorkflowPage() {
                 <button
                   type="button"
                   onClick={() => showNoBackendNotice("Open source chat")}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#e5e7eb] py-2 text-[12px] font-medium text-[#364153] transition-colors hover:bg-[#f3f4f6]"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#e5e7eb] py-2 text-base font-medium text-[#364153] transition-colors hover:bg-[#f3f4f6]"
                 >
                   <MessageSquare size={13} />
                   Open Source Chat
@@ -541,7 +495,7 @@ export default function WorkflowPage() {
                 <button
                   type="button"
                   onClick={() => showNoBackendNotice("Open related script")}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#e5e7eb] py-2 text-[12px] font-medium text-[#364153] transition-colors hover:bg-[#f3f4f6]"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#e5e7eb] py-2 text-base font-medium text-[#364153] transition-colors hover:bg-[#f3f4f6]"
                 >
                   <ExternalLink size={13} />
                   Open Related Script
@@ -551,33 +505,33 @@ export default function WorkflowPage() {
           ) : null}
         </div>
 
-        <p className="mt-4 text-[12px] text-[#6a7282]">{isBusy ? "Working..." : flashMessage || "Ready."}</p>
+        <p className="mt-4 text-base text-[#6a7282]">{isBusy ? "Working..." : flashMessage || "Ready."}</p>
       </div>
 
       {showCreate ? (
         <section className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <form onSubmit={handleCreate} className="w-full max-w-[560px] rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-[20px] font-bold text-[#101828]">Create Task</h2>
+            <h2 className="mb-4 text-xl font-bold text-[#101828]">Create Task</h2>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-[12px] text-[#364153]">Title
-                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} />
+              <label className="text-base text-[#364153]">Title
+                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-base" value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} />
               </label>
-              <label className="text-[12px] text-[#364153]">Owner
-                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createOwner} onChange={(e) => setCreateOwner(e.target.value)} />
+              <label className="text-base text-[#364153]">Owner
+                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-base" value={createOwner} onChange={(e) => setCreateOwner(e.target.value)} />
               </label>
-              <label className="text-[12px] text-[#364153]">Project
-                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createProject} onChange={(e) => setCreateProject(e.target.value)} />
+              <label className="text-base text-[#364153]">Project
+                <input className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-base" value={createProject} onChange={(e) => setCreateProject(e.target.value)} />
               </label>
-              <label className="text-[12px] text-[#364153]">Due Date
-                <input type="date" className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-[13px]" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
+              <label className="text-base text-[#364153]">Due Date
+                <input type="date" className="mt-1 h-10 w-full rounded-xl border border-[#e5e7eb] px-3 text-base" value={createDueDate} onChange={(e) => setCreateDueDate(e.target.value)} />
               </label>
-              <label className="text-[12px] text-[#364153] md:col-span-2">Description
-                <textarea className="mt-1 min-h-20 w-full rounded-xl border border-[#e5e7eb] px-3 py-2 text-[13px]" value={createDescription} onChange={(e) => setCreateDescription(e.target.value)} />
+              <label className="text-base text-[#364153] md:col-span-2">Description
+                <textarea className="mt-1 min-h-20 w-full rounded-xl border border-[#e5e7eb] px-3 py-2 text-base" value={createDescription} onChange={(e) => setCreateDescription(e.target.value)} />
               </label>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" className="rounded-xl border border-[#e5e7eb] px-4 py-2 text-[12px] font-semibold text-[#364153]" onClick={() => setShowCreate(false)}>Cancel</button>
-              <button type="submit" disabled={isBusy} className="rounded-xl border border-[#101828] bg-[#101828] px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-60">Create</button>
+              <button type="button" className="rounded-xl border border-[#e5e7eb] px-4 py-2 text-base font-semibold text-[#364153]" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button type="submit" disabled={isBusy} className="rounded-xl border border-[#101828] bg-[#101828] px-4 py-2 text-base font-semibold text-white disabled:opacity-60">Create</button>
             </div>
           </form>
         </section>
@@ -587,14 +541,14 @@ export default function WorkflowPage() {
         <section className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-[880px] rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-[20px] font-bold text-[#101828]">Workflow Activity Log</h2>
+              <h2 className="text-xl font-bold text-[#101828]">Workflow Activity Log</h2>
               <button type="button" className="text-[#6a7282] hover:text-[#101828]" onClick={() => setShowLogs(false)}><X size={18} /></button>
             </div>
             <div className="max-h-[60vh] overflow-auto rounded-xl border border-[#e5e7eb]">
               {logs.length === 0 ? (
-                <p className="p-4 text-[13px] text-[#6a7282]">No activity logs yet.</p>
+                <p className="p-4 text-base text-[#6a7282]">No activity logs yet.</p>
               ) : (
-                <table className="w-full text-left text-[12px]">
+                <table className="w-full text-left text-base">
                   <thead className="sticky top-0 bg-[#f9fafb]"><tr><th className="px-3 py-2">Time</th><th className="px-3 py-2">Action</th><th className="px-3 py-2">Item</th><th className="px-3 py-2">Details</th></tr></thead>
                   <tbody>
                     {logs.map((log) => (

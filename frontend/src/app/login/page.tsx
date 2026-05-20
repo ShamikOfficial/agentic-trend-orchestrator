@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import { RootRedirect } from "@/components/root-redirect";
+import { LoginPageClient } from "@/components/login-page-client";
 
-export default function Home() {
+export default function LoginPage() {
   return (
     <Suspense
       fallback={
@@ -10,7 +10,7 @@ export default function Home() {
         </main>
       }
     >
-      <RootRedirect />
+      <LoginPageClient />
     </Suspense>
   );
 }

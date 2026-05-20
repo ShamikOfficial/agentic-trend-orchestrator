@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { ChatApiError, loginUser, registerUser } from "@/lib/chat-api";
+import { DEFAULT_AUTHENTICATED_PATH } from "@/lib/auth-redirect";
 import { setAuthToken, setAuthUser } from "@/lib/auth-store";
 
 const allowPasswordAuth = process.env.NEXT_PUBLIC_ALLOW_PASSWORD_AUTH !== "false";
@@ -36,12 +37,15 @@ export function LoginPanel({ bannerMessage, bannerIsError = true }: LoginPanelPr
     setSuccessMessage("");
     setLoginLoading(true);
     try {
-      const response = await loginUser({ username: loginUsername.trim(), password: loginPassword });
+      const response = (await loginUser({
+        username: loginUsername.trim(),
+        password: loginPassword,
+      })) as { token: string; user: Parameters<typeof setAuthUser>[0] };
       setAuthToken(response.token);
       setAuthUser(response.user);
       window.dispatchEvent(new Event("auth-changed"));
       setLoginPassword("");
-      router.replace("/");
+      router.replace(DEFAULT_AUTHENTICATED_PATH);
     } catch (error) {
       if (error instanceof ChatApiError && error.status === 401) {
         setFormError("Invalid username or password. Try again or create an account.");
@@ -118,14 +122,14 @@ export function LoginPanel({ bannerMessage, bannerIsError = true }: LoginPanelPr
             <div className="mb-6 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => void signIn("google", { callbackUrl: "/" })}
+                onClick={() => void signIn("google", { callbackUrl: DEFAULT_AUTHENTICATED_PATH })}
                 className="rounded-xl border border-[#e5e7eb] px-4 py-2.5 text-[13px] font-medium text-[#364153] hover:bg-[#f9fafb]"
               >
                 Google
               </button>
               <button
                 type="button"
-                onClick={() => void signIn("github", { callbackUrl: "/" })}
+                onClick={() => void signIn("github", { callbackUrl: DEFAULT_AUTHENTICATED_PATH })}
                 className="rounded-xl border border-[#e5e7eb] px-4 py-2.5 text-[13px] font-medium text-[#364153] hover:bg-[#f9fafb]"
               >
                 GitHub

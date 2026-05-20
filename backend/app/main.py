@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app import auth_state
-from backend.app.api.routes import admin, chat, health, team, trend_analytics, workflow
+from backend.app.api.routes import admin, calendar, chat, health, team, trend_analytics, workflow
 from backend.app.auth import jwt_auth
 from backend.app.env import load_app_env
 from backend.app.persistence.db import get_engine
@@ -96,6 +96,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(team.router, prefix="/api/v1", tags=["team"])
 app.include_router(workflow.router, prefix="/api/v1", tags=["workflow"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+app.include_router(calendar.router, prefix="/api/v1", tags=["calendar"])
 app.include_router(trend_analytics.router, prefix="/api/v1", tags=["trend-analytics"])
 app.include_router(admin.router, prefix="/api/v1", tags=["admin"])
 app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")

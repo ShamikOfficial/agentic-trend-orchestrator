@@ -14,12 +14,11 @@ from backend.app.llm import LlmError, generate_text, generate_text_guarded, load
 _MAX_TRANSCRIPT_CHARS = 56_000
 
 CHAT_ASK_AI_SYSTEM = (
-    "You answer questions using ONLY the chat transcript provided by the user message. "
-    "Do not use outside knowledge, the web, or assumptions beyond what is explicitly stated in that transcript. "
-    "If the transcript is empty, say there are no messages in this chat yet. "
-    "If the transcript does not contain information needed to answer, say clearly that you found nothing "
-    "relevant in this chat history—do not guess or invent details. "
-    "Keep answers concise."
+    "You answer questions using the chat transcript and any SCHEDULE CONTEXT block when provided. "
+    "For scheduling, availability, free slots, or meeting-time questions, rely on SCHEDULE CONTEXT first. "
+    "Do not say 'nothing relevant in this chat' when SCHEDULE CONTEXT answers the question. "
+    "For other topics, use only the transcript; if it lacks the answer, say you found nothing relevant in the chat history. "
+    "Do not invent facts. Keep answers concise."
 )
 
 
@@ -47,18 +46,34 @@ def format_transcript(messages: list[dict]) -> str:
     return text
 
 
-def answer_from_transcript(transcript: str, question: str, *, user_id: str | None = None) -> str:
+def answer_from_transcript(
+    transcript: str,
+    question: str,
+    *,
+    user_id: str | None = None,
+    schedule_context: str | None = None,
+) -> str:
     q = question.strip()
     if not q:
         raise LlmError("Question is empty.")
     block = transcript.strip() if transcript.strip() else "(No messages in this conversation.)"
+    schedule_block = ""
+    if schedule_context and schedule_context.strip():
+        schedule_block = (
+            "\n\nSCHEDULE CONTEXT (use this for availability / meeting-time / calendar questions):\n"
+            "-----\n"
+            f"{schedule_context.strip()}\n"
+            "-----\n"
+        )
     user_prompt = (
-        "Chat transcript — this is your ONLY source of facts:\n"
+        "Chat transcript:\n"
         "-----\n"
         f"{block}\n"
-        "-----\n\n"
+        "-----"
+        f"{schedule_block}\n\n"
         f"Question: {q}\n\n"
-        "Answer using only the transcript above. If it does not support an answer, say you found nothing relevant in this chat."
+        "Answer the question. Use SCHEDULE CONTEXT for scheduling/availability; otherwise use the transcript. "
+        "Do not claim nothing was found if SCHEDULE CONTEXT already lists open slots."
     )
     cfg = load_llm_config()
     if user_id:

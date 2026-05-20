@@ -25,6 +25,12 @@ const nav = [
     activeFor: ["/app/chat", "/app/chat-brief", "/app/chat-tasks", "/app/chat-review", "/app/report-chat", "/chat"],
   },
   {
+    href: "/app/tasks",
+    label: "My Tasks",
+    Icon: CheckSquare,
+    activeFor: ["/app/tasks", "/workflow"],
+  },
+  {
     href: "/app",
     label: "Script Generation",
     Icon: FileText,
@@ -48,12 +54,6 @@ const nav = [
     Icon: BarChart2,
     activeFor: ["/app/progress"],
   },
-  {
-    href: "/app/tasks",
-    label: "My Tasks",
-    Icon: CheckSquare,
-    activeFor: ["/app/tasks", "/workflow"],
-  },
 ] as const;
 
 export function AppSidebar() {
@@ -76,7 +76,11 @@ export function AppSidebar() {
 
       <nav className="flex flex-1 flex-col items-center gap-2">
         {nav.map(({ href, label, Icon, activeFor }) => {
-          const isActive = activeFor.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+          const isActive = activeFor.some((path) => {
+            if (pathname === path) return true;
+            if (path === "/app") return false;
+            return pathname.startsWith(`${path}/`);
+          });
           return (
             <Link
               key={href}

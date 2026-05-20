@@ -5,7 +5,12 @@ import { useSession } from "next-auth/react";
 import { useEffect, useSyncExternalStore } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { getAuthToken } from "@/lib/auth-store";
-import { loginPathWithReason } from "@/lib/auth-redirect";
+import {
+  DEFAULT_AUTHENTICATED_PATH,
+  isPublicPath,
+  loginPathWithReason,
+  shouldRedirectAuthedAwayFromAuthPages,
+} from "@/lib/auth-redirect";
 import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
 
 function subscribeAuth(onStoreChange: () => void) {
@@ -24,6 +29,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
 
   const authed = status === "authenticated" || Boolean(legacyToken);
+  const sessionReady = status !== "loading";
+  const publicRoute = isPublicPath(pathname);
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -38,12 +45,27 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [status]);
 
   useEffect(() => {
-    if (!authed && pathname !== "/") {
-      router.replace(loginPathWithReason("login_required"));
-    }
-  }, [pathname, router, authed]);
+    if (!sessionReady) return;
 
-  const showShell = authed;
+    if (!authed && !publicRoute) {
+      router.replace(loginPathWithReason("login_required"));
+      return;
+    }
+
+    if (authed && shouldRedirectAuthedAwayFromAuthPages(pathname)) {
+      router.replace(DEFAULT_AUTHENTICATED_PATH);
+    }
+  }, [sessionReady, authed, publicRoute, pathname, router]);
+
+  const showShell = authed && !shouldRedirectAuthedAwayFromAuthPages(pathname);
+
+  if (!sessionReady && !publicRoute) {
+    return (
+      <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
+        Loading…
+      </main>
+    );
+  }
 
   return (
     <div

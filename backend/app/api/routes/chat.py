@@ -13,7 +13,8 @@ from backend.app.llm import LlmError, LlmQuotaError
 from backend.app.persistence import auth_repo, chat_repo
 from backend.app.persistence import workflow_repo
 from backend.app.services.chat import assistant as chat_assistant
-from backend.app.services.chat import task_extractor
+from backend.app.services.chat import orchestrator as chat_orchestrator
+from backend.app.services.chat import schedule_slots, task_analysis_batches, task_extractor
 from backend.app.services.team import service as id_service
 
 router = APIRouter()
@@ -42,10 +43,17 @@ class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
 
 
+class ExternalBusyEvent(BaseModel):
+    summary: str = ""
+    start: str
+    end: str
+
+
 class AskChatAiRequest(BaseModel):
     chat_type: Literal["dm", "group"]
     target_id: str = Field(min_length=1)
     question: str = Field(min_length=1, max_length=8000)
+    external_events: list[ExternalBusyEvent] = Field(default_factory=list)
 
 
 class GroupRequestActionRequest(BaseModel):
@@ -59,6 +67,17 @@ class ChatExtractTasksRequest(BaseModel):
     force: bool = False
 
 
+class SuggestTimeSlotsRequest(BaseModel):
+    chat_type: Literal["dm", "group"]
+    target_id: str = Field(min_length=1)
+    task_title: str = Field(min_length=1)
+    task_description: str = ""
+    duration_minutes: int = 60
+    preferred_date: str | None = None
+    message_text: str | None = None
+    external_events: list[ExternalBusyEvent] = Field(default_factory=list)
+
+
 class ApplyTaskActionRequest(BaseModel):
     action: Literal["create", "update", "comment", "close"]
     title: str | None = None
@@ -68,6 +87,12 @@ class ApplyTaskActionRequest(BaseModel):
     existing_item_id: str | None = None
     update_fields: dict | None = None
     comment: str | None = None
+    chat_type: Literal["dm", "group"] | None = None
+    target_id: str | None = None
+    source_message_batch_index: int | None = None
+    source_message_ids: list[str] | None = None
+    source_first_message_id: str | None = None
+    source_last_message_id: str | None = None
 
 
 def _legacy_user(x_auth_token: str | None, request: Request) -> str:
@@ -175,6 +200,42 @@ def list_dm(
     return {"items": chat_repo.list_dm_messages(user_id, target_user_id)}
 
 
+def _delete_dm_message_impl(user_id: str, target_user_id: str, message_id: str) -> dict:
+    row = chat_repo.get_dm_message(message_id)
+    if not row:
+        return {"deleted": True, "message_id": message_id, "already_gone": True}
+    pair = tuple(sorted([user_id, target_user_id]))
+    if pair != tuple(sorted([row["user_a"], row["user_b"]])):
+        raise HTTPException(status_code=403, detail="Message is not in this conversation.")
+    if row["sender_id"] != user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own messages.")
+    chat_repo.delete_dm_message(message_id)
+    return {"deleted": True, "message_id": message_id}
+
+
+@router.delete("/chat/dm/{target_user_id}/messages/{message_id}")
+def delete_dm_message(
+    target_user_id: str,
+    message_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    user_id = _legacy_user(x_auth_token, request)
+    return _delete_dm_message_impl(user_id, target_user_id, message_id)
+
+
+@router.post("/chat/dm/{target_user_id}/messages/{message_id}/delete")
+def delete_dm_message_post(
+    target_user_id: str,
+    message_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    """POST fallback when DELETE is blocked or an old proxy strips the method."""
+    user_id = _legacy_user(x_auth_token, request)
+    return _delete_dm_message_impl(user_id, target_user_id, message_id)
+
+
 @router.post("/chat/groups")
 def create_group(
     payload: CreateGroupRequest,
@@ -224,7 +285,15 @@ def search_chat(
     users = auth_repo.search_users(q, user_id)
     safe_users = [{k: v for k, v in u.items() if k not in ("password", "password_hash")} for u in users]
     groups = chat_repo.search_groups(q, user_id)
-    return {"users": safe_users, "groups": groups}
+    messages = chat_repo.search_messages(q, user_id)
+    for hit in messages:
+        if hit["chat_type"] == "dm":
+            peer = auth_repo.get_user(hit["target_id"])
+            hit["chat_name"] = peer["display_name"] if peer else hit["target_id"]
+        else:
+            group = chat_repo.get_group(hit["target_id"])
+            hit["chat_name"] = group["name"] if group else hit["target_id"]
+    return {"users": safe_users, "groups": groups, "messages": messages}
 
 
 @router.post("/chat/groups/{group_id}/request-join")
@@ -302,6 +371,34 @@ def send_group_message(
     return chat_repo.add_group_message(group_id, message)
 
 
+@router.delete("/chat/conversation")
+def delete_conversation(
+    chat_type: Literal["dm", "group"],
+    target_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    user_id = _legacy_user(x_auth_token, request)
+    chat_key = _resolve_chat_key(user_id, chat_type, target_id)
+
+    if chat_type == "dm":
+        try:
+            auth_state.safe_user(target_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Target user not found.") from None
+        deleted = chat_repo.delete_dm_conversation(user_id, target_id)
+    else:
+        group = chat_repo.get_group(target_id)
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found.")
+        if user_id not in group["members"]:
+            raise HTTPException(status_code=403, detail="Join group before deleting chat history.")
+        deleted = chat_repo.delete_group_messages(target_id)
+
+    chat_repo.clear_analysis_state(chat_key)
+    return {"deleted": True, "messages_removed": deleted, "chat_key": chat_key}
+
+
 @router.get("/chat/groups/{group_id}/messages")
 def list_group_messages(
     group_id: str,
@@ -315,6 +412,44 @@ def list_group_messages(
     if user_id not in group["members"]:
         raise HTTPException(status_code=403, detail="Join group before viewing messages.")
     return {"items": chat_repo.list_group_messages(group_id)}
+
+
+def _delete_group_message_impl(user_id: str, group_id: str, message_id: str) -> dict:
+    group = chat_repo.get_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found.")
+    if user_id not in group["members"]:
+        raise HTTPException(status_code=403, detail="Join group before deleting messages.")
+    row = chat_repo.get_group_message(message_id)
+    if not row or row["group_id"] != group_id:
+        return {"deleted": True, "message_id": message_id, "already_gone": True}
+    is_admin = group["created_by"] == user_id
+    if row["sender_id"] != user_id and not is_admin:
+        raise HTTPException(status_code=403, detail="You can only delete your own messages.")
+    chat_repo.delete_group_message(message_id)
+    return {"deleted": True, "message_id": message_id}
+
+
+@router.delete("/chat/groups/{group_id}/messages/{message_id}")
+def delete_group_message(
+    group_id: str,
+    message_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    user_id = _legacy_user(x_auth_token, request)
+    return _delete_group_message_impl(user_id, group_id, message_id)
+
+
+@router.post("/chat/groups/{group_id}/messages/{message_id}/delete")
+def delete_group_message_post(
+    group_id: str,
+    message_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    user_id = _legacy_user(x_auth_token, request)
+    return _delete_group_message_impl(user_id, group_id, message_id)
 
 
 def _messages_for_ask_ai(user_id: str, payload: AskChatAiRequest) -> list[dict]:
@@ -342,12 +477,27 @@ def ask_chat_ai(
 ) -> dict:
     user_id = _legacy_user(x_auth_token, request)
     rows = _messages_for_ask_ai(user_id, payload)
-    transcript = chat_assistant.format_transcript(rows)
+    question = payload.question.strip()
+    chat_key = _resolve_chat_key(user_id, payload.chat_type, payload.target_id)
+    external = [ev.model_dump() for ev in payload.external_events]
+
     try:
-        answer = chat_assistant.answer_from_transcript(transcript, payload.question, user_id=user_id)
+        result = chat_orchestrator.run_chat_orchestrator(
+            messages=rows,
+            question=question,
+            user_id=user_id,
+            chat_key=chat_key,
+            external_events=external,
+        )
     except (LlmError, LlmQuotaError) as exc:
         raise _llm_http_error(exc) from exc
-    return {"answer": answer.strip()}
+
+    return {
+        "answer": result.get("answer", ""),
+        "show_schedule_picker": bool(result.get("show_schedule_picker")),
+        "intent": result.get("intent", "ask"),
+        "task_suggestions": result.get("task_suggestions") or [],
+    }
 
 
 def _resolve_chat_key(user_id: str, chat_type: str, target_id: str) -> str:
@@ -387,6 +537,149 @@ def _messages_after_id(messages: list[dict], last_id: str | None) -> list[dict]:
     return result
 
 
+def _stamp_message_source(data: dict, payload: ApplyTaskActionRequest) -> None:
+    if payload.source_message_batch_index is not None:
+        data["source_message_batch_index"] = payload.source_message_batch_index
+    if payload.source_message_ids:
+        data["source_message_ids"] = payload.source_message_ids
+    if payload.source_first_message_id:
+        data["source_first_message_id"] = payload.source_first_message_id
+    if payload.source_last_message_id:
+        data["source_last_message_id"] = payload.source_last_message_id
+
+
+def _chat_source_key(user_id: str, chat_type: str | None, target_id: str | None) -> str | None:
+    if not chat_type or not target_id:
+        return None
+    return _resolve_chat_key(user_id, chat_type, target_id)
+
+
+def _item_linked_to_chat(item, chat_key: str) -> bool:
+    if getattr(item, "source_chat_key", None) == chat_key:
+        return True
+    linked = (item.linked_trend or "").lower()
+    return chat_key.lower() in linked or linked.startswith("chat:")
+
+
+@router.get("/chat/work-items")
+def list_chat_work_items(
+    chat_type: Literal["dm", "group"],
+    target_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    user_id = _legacy_user(x_auth_token, request)
+    chat_key = _resolve_chat_key(user_id, chat_type, target_id)
+    items = [
+        item.model_dump(mode="json")
+        for item in workflow_repo.list_workflow_items()
+        if _item_linked_to_chat(item, chat_key)
+    ]
+    item_ids = {row["item_id"] for row in items}
+    milestones = [
+        ms.model_dump(mode="json")
+        for ms in workflow_repo.list_milestones()
+        if ms.item_id in item_ids
+    ]
+    return {"chat_key": chat_key, "items": items, "milestones": milestones}
+
+
+def _require_schedule_fields(sched: dict, *, action: str) -> None:
+    """Create/update tasks must include a scheduled window."""
+    if not sched.get("scheduled_start") or not sched.get("scheduled_end"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"scheduled_start and scheduled_end are required for {action}. "
+                "Pick a time slot in the task panel before accepting."
+            ),
+        )
+    if not sched.get("due_date"):
+        start = sched["scheduled_start"]
+        sched["due_date"] = start.date() if hasattr(start, "date") else start
+
+
+def _parse_schedule_update_fields(update_fields: dict | None) -> dict:
+    from datetime import date as date_type
+
+    if not update_fields:
+        return {}
+    out: dict = {}
+    for key in ("due_date", "scheduled_start", "scheduled_end"):
+        raw = update_fields.get(key)
+        if raw is None:
+            continue
+        if key == "due_date":
+            try:
+                out["due_date"] = date_type.fromisoformat(str(raw)[:10])
+            except ValueError:
+                pass
+        else:
+            try:
+                normalized = str(raw).replace("Z", "+00:00")
+                out[key] = datetime.fromisoformat(normalized)
+            except ValueError:
+                pass
+    return out
+
+
+@router.post("/chat/suggest-time-slots")
+def suggest_chat_time_slots(
+    payload: SuggestTimeSlotsRequest,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    user_id = _legacy_user(x_auth_token, request)
+    chat_key = _resolve_chat_key(user_id, payload.chat_type, payload.target_id)
+    linked_items = [
+        item
+        for item in workflow_repo.list_workflow_items()
+        if _item_linked_to_chat(item, chat_key)
+    ]
+    item_ids = {item.item_id for item in linked_items}
+    linked_milestones = [
+        ms for ms in workflow_repo.list_milestones() if ms.item_id in item_ids
+    ]
+    all_items = workflow_repo.list_workflow_items()
+    external = [ev.model_dump() for ev in payload.external_events]
+    result = schedule_slots.suggest_time_slots(
+        task_title=payload.task_title,
+        task_description=payload.task_description,
+        duration_minutes=payload.duration_minutes,
+        preferred_date=payload.preferred_date,
+        items=all_items,
+        milestones=linked_milestones,
+        external_events=external,
+    )
+    result["needs_scheduling"] = schedule_slots.message_needs_scheduling(
+        payload.message_text or payload.task_title
+    )
+    return result
+
+
+@router.get("/chat/task-analysis-sections")
+def list_task_analysis_sections(
+    chat_type: Literal["dm", "group"],
+    target_id: str,
+    request: Request,
+    x_auth_token: str | None = Header(default=None),
+) -> dict:
+    """Completed analysis sections and how many messages are waiting for the next batch."""
+    user_id = _legacy_user(x_auth_token, request)
+    chat_key = _resolve_chat_key(user_id, chat_type, target_id)
+    all_messages = _get_messages_for_chat(user_id, chat_type, target_id)
+    last_analyzed_id = chat_repo.get_analysis_state(chat_key)
+    unanalyzed = task_analysis_batches.messages_after_id(all_messages, last_analyzed_id)
+    batch_size = task_analysis_batches.task_extract_batch_size()
+    sections = chat_repo.list_analysis_batches(chat_key)
+    return {
+        "batch_size": batch_size,
+        "sections": sections,
+        "pending_count": len(unanalyzed),
+        "pending_until_analyze": max(0, batch_size - len(unanalyzed)),
+    }
+
+
 @router.post("/chat/extract-tasks")
 def extract_tasks(
     payload: ChatExtractTasksRequest,
@@ -396,42 +689,67 @@ def extract_tasks(
     user_id = _legacy_user(x_auth_token, request)
     chat_key = _resolve_chat_key(user_id, payload.chat_type, payload.target_id)
     all_messages = _get_messages_for_chat(user_id, payload.chat_type, payload.target_id)
+    last_analyzed_id = chat_repo.get_analysis_state(chat_key)
+    next_batch_index = chat_repo.count_analysis_batches(chat_key)
+    batch_size = (
+        task_analysis_batches.task_extract_force_count()
+        if payload.force
+        else task_analysis_batches.task_extract_batch_size()
+    )
+    unanalyzed = task_analysis_batches.messages_after_id(all_messages, last_analyzed_id)
 
-    if payload.force:
-        new_messages = all_messages[-TASK_EXTRACT_FORCE_COUNT:]
-    else:
-        last_analyzed_id = chat_repo.get_analysis_state(chat_key)
-        new_messages = _messages_after_id(all_messages, last_analyzed_id)
+    selected = task_analysis_batches.select_messages_for_extraction(
+        all_messages,
+        last_analyzed_id=last_analyzed_id,
+        next_batch_index=next_batch_index,
+        force=payload.force,
+    )
 
-    if not payload.force and len(new_messages) < TASK_EXTRACT_BATCH_SIZE:
+    if selected is None:
         return {
             "status": "pending",
-            "unanalyzed_count": len(new_messages),
-            "threshold": TASK_EXTRACT_BATCH_SIZE,
+            "unanalyzed_count": len(unanalyzed),
+            "threshold": batch_size,
+            "pending_until_analyze": max(0, batch_size - len(unanalyzed)),
             "suggestions": [],
+            "analysis_batch": None,
         }
 
-    if not new_messages:
-        return {"status": "analyzed", "unanalyzed_count": 0, "suggestions": []}
+    new_messages, batch_meta = selected
 
-    existing_items = workflow_repo.list_workflow_items()
+    linked_items = [
+        item
+        for item in workflow_repo.list_workflow_items()
+        if _item_linked_to_chat(item, chat_key)
+    ]
 
     try:
         suggestions = task_extractor.extract_tasks_from_chat(
             new_messages,
-            existing_items,
+            linked_items,
             user_id=user_id,
         )
     except (LlmError, LlmQuotaError) as exc:
         raise _llm_http_error(exc) from exc
 
-    latest_msg = new_messages[-1] if new_messages else None
-    if latest_msg:
-        chat_repo.set_analysis_state(chat_key, latest_msg["message_id"])
+    suggestions = task_analysis_batches.attach_batch_to_suggestions(suggestions, batch_meta)
+
+    chat_repo.set_analysis_state(chat_key, batch_meta["last_message_id"])
+    chat_repo.add_analysis_batch(
+        chat_key,
+        batch_index=batch_meta["batch_index"],
+        first_message_id=batch_meta["first_message_id"],
+        last_message_id=batch_meta["last_message_id"],
+        message_ids=batch_meta["message_ids"],
+    )
+
+    remaining = len(unanalyzed) - batch_meta["message_count"]
 
     return {
         "status": "analyzed",
-        "unanalyzed_count": 0,
+        "unanalyzed_count": remaining,
+        "threshold": batch_size,
+        "analysis_batch": batch_meta,
         "suggestions": suggestions,
     }
 
@@ -442,7 +760,7 @@ def apply_task_action(
     request: Request,
     x_auth_token: str | None = Header(default=None),
 ) -> dict:
-    _legacy_user(x_auth_token, request)
+    user_id = _legacy_user(x_auth_token, request)
 
     from backend.app.api.routes.workflow import _append_activity
     from backend.app.models.workflow import VALID_WORKFLOW_STAGES, WorkflowItem
@@ -453,13 +771,26 @@ def apply_task_action(
         if raw_stage not in VALID_WORKFLOW_STAGES:
             payload.update_fields.pop("stage")
 
+    chat_key = _chat_source_key(user_id, payload.chat_type, payload.target_id)
+
     if payload.action == "create":
         if not payload.title:
             raise HTTPException(status_code=400, detail="title is required for create action.")
+        sched = _parse_schedule_update_fields(payload.update_fields)
+        _require_schedule_fields(sched, action="create")
         item = wf_service.create_workflow_item(
             title=payload.title,
             description=payload.description or "",
             owner=payload.owner,
+            linked_trend=f"chat:{chat_key}" if chat_key else "chat",
+            source_chat_key=chat_key,
+            source_message_batch_index=payload.source_message_batch_index,
+            source_message_ids=payload.source_message_ids or [],
+            source_first_message_id=payload.source_first_message_id,
+            source_last_message_id=payload.source_last_message_id,
+            due_date=sched.get("due_date"),
+            scheduled_start=sched.get("scheduled_start"),
+            scheduled_end=sched.get("scheduled_end"),
         )
         workflow_repo.save_workflow_item(item)
         _append_activity(
@@ -478,9 +809,22 @@ def apply_task_action(
             raise HTTPException(status_code=404, detail="Workflow item not found.")
         data = existing.model_dump()
         if payload.update_fields:
+            sched = _parse_schedule_update_fields(payload.update_fields)
+            uf = payload.update_fields or {}
+            if any(k in uf for k in ("due_date", "scheduled_start", "scheduled_end")):
+                _require_schedule_fields(sched, action="update")
+            for k, v in sched.items():
+                data[k] = v
             for k, v in payload.update_fields.items():
-                if k in data and v is not None:
+                if k in data and v is not None and k not in sched:
+                    if k in ("due_date", "scheduled_start", "scheduled_end"):
+                        continue
                     data[k] = v
+        if chat_key and not data.get("source_chat_key"):
+            data["source_chat_key"] = chat_key
+            if not (data.get("linked_trend") or "").lower().startswith("chat"):
+                data["linked_trend"] = f"chat:{chat_key}"
+        _stamp_message_source(data, payload)
         data["updated_at"] = datetime.now(UTC)
         updated = WorkflowItem(**data)
         workflow_repo.save_workflow_item(updated)

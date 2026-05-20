@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 
 from backend.app.persistence.db import session_scope
 from backend.app.persistence.models import (
     ChatAnalysisState,
+    ChatTaskAnalysisBatch,
     DmMessage,
     Group,
     GroupJoinRequest,
@@ -105,6 +106,86 @@ def get_group(group_id: str) -> dict | None:
         }
 
 
+def _message_preview(content: str, query: str, *, max_len: int = 100) -> str:
+    q = query.strip().lower()
+    text = content.strip()
+    if not q:
+        snippet = text[:max_len]
+        return snippet + ("…" if len(text) > max_len else "")
+    lower = text.lower()
+    idx = lower.find(q)
+    if idx < 0:
+        snippet = text[:max_len]
+        return snippet + ("…" if len(text) > max_len else "")
+    start = max(0, idx - 24)
+    end = min(len(text), idx + len(q) + 48)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(text) else ""
+    return f"{prefix}{text[start:end]}{suffix}"
+
+
+def search_messages(query: str, user_id: str, *, limit: int = 40) -> list[dict]:
+    q = query.strip().lower()
+    if not q:
+        return []
+    with session_scope() as session:
+        hits: list[dict] = []
+
+        dm_rows = session.scalars(
+            select(DmMessage)
+            .where(
+                or_(DmMessage.user_a == user_id, DmMessage.user_b == user_id),
+                func.lower(DmMessage.content).contains(q),
+            )
+            .order_by(DmMessage.created_at.desc())
+            .limit(limit)
+        ).all()
+        for row in dm_rows:
+            other_id = row.user_b if row.user_a == user_id else row.user_a
+            hits.append(
+                {
+                    "message_id": row.message_id,
+                    "content": row.content,
+                    "preview": _message_preview(row.content, q),
+                    "chat_type": "dm",
+                    "target_id": other_id,
+                    "created_at": row.created_at.isoformat(),
+                    "sender_id": row.sender_id,
+                }
+            )
+
+        member_group_ids = list(
+            session.scalars(
+                select(GroupMember.group_id).where(GroupMember.user_id == user_id)
+            ).all()
+        )
+        if member_group_ids:
+            group_rows = session.scalars(
+                select(GroupMessage)
+                .where(
+                    GroupMessage.group_id.in_(member_group_ids),
+                    func.lower(GroupMessage.content).contains(q),
+                )
+                .order_by(GroupMessage.created_at.desc())
+                .limit(limit)
+            ).all()
+            for row in group_rows:
+                hits.append(
+                    {
+                        "message_id": row.message_id,
+                        "content": row.content,
+                        "preview": _message_preview(row.content, q),
+                        "chat_type": "group",
+                        "target_id": row.group_id,
+                        "created_at": row.created_at.isoformat(),
+                        "sender_id": row.sender_id,
+                    }
+                )
+
+        hits.sort(key=lambda item: item["created_at"], reverse=True)
+        return hits[:limit]
+
+
 def search_groups(query: str, user_id: str) -> list[dict]:
     q = query.strip().lower()
     with session_scope() as session:
@@ -187,6 +268,118 @@ def set_analysis_state(chat_key: str, last_message_id: str) -> None:
         session.merge(
             ChatAnalysisState(chat_key=chat_key, last_message_id=last_message_id),
         )
+
+
+def clear_analysis_state(chat_key: str) -> None:
+    with session_scope() as session:
+        row = session.get(ChatAnalysisState, chat_key)
+        if row:
+            session.delete(row)
+        session.execute(delete(ChatTaskAnalysisBatch).where(ChatTaskAnalysisBatch.chat_key == chat_key))
+
+
+def count_analysis_batches(chat_key: str) -> int:
+    with session_scope() as session:
+        rows = session.scalars(
+            select(ChatTaskAnalysisBatch.batch_index).where(
+                ChatTaskAnalysisBatch.chat_key == chat_key,
+            ),
+        ).all()
+        return len(rows)
+
+
+def list_analysis_batches(chat_key: str) -> list[dict]:
+    with session_scope() as session:
+        rows = session.scalars(
+            select(ChatTaskAnalysisBatch)
+            .where(ChatTaskAnalysisBatch.chat_key == chat_key)
+            .order_by(ChatTaskAnalysisBatch.batch_index),
+        ).all()
+        return [
+            {
+                "batch_index": row.batch_index,
+                "first_message_id": row.first_message_id,
+                "last_message_id": row.last_message_id,
+                "message_ids": list(row.message_ids or []),
+                "message_count": len(row.message_ids or []),
+                "analyzed_at": row.analyzed_at.isoformat(),
+            }
+            for row in rows
+        ]
+
+
+def add_analysis_batch(
+    chat_key: str,
+    *,
+    batch_index: int,
+    first_message_id: str,
+    last_message_id: str,
+    message_ids: list[str],
+) -> None:
+    with session_scope() as session:
+        session.merge(
+            ChatTaskAnalysisBatch(
+                chat_key=chat_key,
+                batch_index=batch_index,
+                first_message_id=first_message_id,
+                last_message_id=last_message_id,
+                message_ids=message_ids,
+                analyzed_at=_now(),
+            ),
+        )
+
+
+def delete_dm_conversation(user_a: str, user_b: str) -> int:
+    ua, ub = _dm_key(user_a, user_b)
+    with session_scope() as session:
+        result = session.execute(
+            delete(DmMessage).where(DmMessage.user_a == ua, DmMessage.user_b == ub)
+        )
+        return int(result.rowcount or 0)
+
+
+def delete_group_messages(group_id: str) -> int:
+    with session_scope() as session:
+        result = session.execute(delete(GroupMessage).where(GroupMessage.group_id == group_id))
+        return int(result.rowcount or 0)
+
+
+def get_dm_message(message_id: str) -> dict | None:
+    with session_scope() as session:
+        row = session.get(DmMessage, message_id)
+        if not row:
+            return None
+        return {
+            **_dm_to_dict(row),
+            "user_a": row.user_a,
+            "user_b": row.user_b,
+        }
+
+
+def get_group_message(message_id: str) -> dict | None:
+    with session_scope() as session:
+        row = session.get(GroupMessage, message_id)
+        if not row:
+            return None
+        return {**_group_msg_to_dict(row), "group_id": row.group_id}
+
+
+def delete_dm_message(message_id: str) -> bool:
+    with session_scope() as session:
+        row = session.get(DmMessage, message_id)
+        if not row:
+            return False
+        session.delete(row)
+        return True
+
+
+def delete_group_message(message_id: str) -> bool:
+    with session_scope() as session:
+        row = session.get(GroupMessage, message_id)
+        if not row:
+            return False
+        session.delete(row)
+        return True
 
 
 def _member_ids(session, group_id: str) -> list[str]:

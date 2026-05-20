@@ -128,3 +128,67 @@
     @apply font-sans;
   }
 }
+
+@keyframes agent-panel-tab-glow {
+  0%,
+  100% {
+    box-shadow:
+      -4px 0 14px rgba(124, 58, 237, 0.2),
+      inset 0 0 0 0 rgba(167, 139, 250, 0);
+    border-color: rgba(196, 181, 253, 0.75);
+  }
+  50% {
+    box-shadow:
+      -8px 0 26px rgba(124, 58, 237, 0.55),
+      0 0 14px 2px rgba(167, 139, 250, 0.45),
+      inset -6px 0 12px rgba(167, 139, 250, 0.25);
+    border-color: rgba(167, 139, 250, 1);
+  }
+}
+
+@keyframes agent-panel-chevron-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-4px);
+  }
+}
+
+@keyframes agent-panel-shimmer {
+  0% {
+    background-position: 180% 50%;
+  }
+  100% {
+    background-position: -80% 50%;
+  }
+}
+
+.agent-panel-tab-glow {
+  background-image: linear-gradient(
+    105deg,
+    #f5f3ff 0%,
+    #f5f3ff 35%,
+    #ede9fe 45%,
+    #ddd6fe 50%,
+    #ede9fe 55%,
+    #f5f3ff 65%,
+    #faf5ff 100%
+  );
+  background-size: 220% 100%;
+  animation:
+    agent-panel-tab-glow 2s ease-in-out infinite,
+    agent-panel-shimmer 2.8s linear infinite;
+}
+
+.agent-panel-chevron-nudge {
+  animation: agent-panel-chevron-nudge 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-tab-glow,
+  .agent-panel-chevron-nudge {
+    animation: none;
+  }
+}

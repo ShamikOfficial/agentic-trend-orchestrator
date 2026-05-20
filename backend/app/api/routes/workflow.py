@@ -62,6 +62,8 @@ class UpdateWorkflowItemRequest(BaseModel):
     linked_trend: str | None = None
     project: str | None = None
     due_date: date | None = None
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
     comments: list[str] | None = None
     links: list[str] | None = None
     attachments: list[str] | None = None
