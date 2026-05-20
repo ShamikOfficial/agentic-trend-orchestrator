@@ -28,14 +28,30 @@ async function buildAuthHeaders(token?: string) {
   return base;
 }
 
+function detailFromPayload(payload: unknown, fallback: string): string {
+  const d = (payload as { detail?: unknown })?.detail;
+  if (typeof d === "string" && d.trim()) {
+    return d.trim();
+  }
+  if (d && typeof d === "object") {
+    const obj = d as Record<string, unknown>;
+    const inner = obj.detail;
+    if (typeof inner === "string" && inner.trim()) {
+      const used = obj.tokens_used;
+      const budget = obj.token_budget;
+      if (typeof used === "number" && typeof budget === "number") {
+        return `${inner.trim()} (${used.toLocaleString()} / ${budget.toLocaleString()} tokens this month)`;
+      }
+      return inner.trim();
+    }
+  }
+  return fallback;
+}
+
 async function parseErrorMessage(response: Response, fallback: string) {
   try {
     const payload = await response.json();
-    const detail =
-      typeof payload?.detail === "string" && payload.detail.trim()
-        ? payload.detail.trim()
-        : fallback;
-    return detail;
+    return detailFromPayload(payload, fallback);
   } catch {
     return fallback;
   }
