@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ChatUnreadSync } from "@/components/chat-unread-sync";
 import { getAuthToken } from "@/lib/auth-store";
 import {
   DEFAULT_AUTHENTICATED_PATH,
@@ -106,6 +107,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       }
     >
       {showShell ? <AppSidebar /> : null}
+      {showShell ? <ChatUnreadSync /> : null}
       <div className={showShell ? "min-h-0 min-w-0 flex-1 overflow-auto" : "min-h-screen w-full"}>
         {children}
       </div>
