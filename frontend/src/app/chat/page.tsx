@@ -73,6 +73,12 @@ const CHAT_POLL_INTERVAL_MS = (() => {
   return Math.max(2, Number.isFinite(seconds) ? seconds : 3) * 1000;
 })();
 
+const SCROLL_BOTTOM_THRESHOLD_PX = 64;
+
+function isMessagesNearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX;
+}
+
 type ChatUser = {
   user_id: string;
   username: string;
@@ -172,6 +178,11 @@ export default function ChatPage() {
   const skipLocalSearchResetRef = useRef(false);
   const isAnalyzingTasksRef = useRef(false);
   const lastSyncedMessageKeyRef = useRef("");
+  const isNearBottomRef = useRef(true);
+  const stickToBottomRef = useRef(true);
+  const lastSeenMessageIdRef = useRef<string | null>(null);
+  const prevMessagesLengthRef = useRef(0);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const [infoPanelOpen, setInfoPanelOpen] = useState(true);
   const [askAiBusy, setAskAiBusy] = useState(false);
   const [aiReply, setAiReply] = useState<{ content: string } | null>(null);
@@ -192,6 +203,7 @@ export default function ChatPage() {
   const [analysisSections, setAnalysisSections] = useState<ChatTaskAnalysisSection[]>([]);
   const [taskAnalysisBatchSize, setTaskAnalysisBatchSize] = useState(5);
   const [pendingTaskMessages, setPendingTaskMessages] = useState(0);
+  const [unreadBelowCount, setUnreadBelowCount] = useState(0);
 
   const authed = sessionStatus === "authenticated" || Boolean(token);
   /** Empty string for OAuth: chat-api falls back to Bearer via resolveApiAuthHeaders. */
@@ -229,7 +241,12 @@ export default function ChatPage() {
     setLastAvailabilityQuestion("");
     setAnalysisSections([]);
     setPendingTaskMessages(0);
+    setUnreadBelowCount(0);
     lastSyncedMessageKeyRef.current = "";
+    isNearBottomRef.current = true;
+    stickToBottomRef.current = true;
+    lastSeenMessageIdRef.current = null;
+    prevMessagesLengthRef.current = 0;
     if (skipLocalSearchResetRef.current) {
       skipLocalSearchResetRef.current = false;
     } else {
@@ -258,6 +275,100 @@ export default function ChatPage() {
       setAnalysisSections([]);
     }
   }, [activeTargetId, apiAuth, chatMode]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+      isNearBottomRef.current = true;
+      stickToBottomRef.current = true;
+      setUnreadBelowCount(0);
+      const last = messagesRef.current.at(-1);
+      if (last) {
+        lastSeenMessageIdRef.current = last.message_id;
+      }
+      prevMessagesLengthRef.current = messagesRef.current.length;
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const near = isMessagesNearBottom(el);
+      isNearBottomRef.current = near;
+      stickToBottomRef.current = near;
+      if (near) {
+        setUnreadBelowCount(0);
+        const last = messagesRef.current.at(-1);
+        if (last) {
+          lastSeenMessageIdRef.current = last.message_id;
+        }
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [activeTargetId, chatMode]);
+
+  useEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el || messages.length === 0) return;
+
+    const lastMsg = messages[messages.length - 1];
+    const prevLen = prevMessagesLengthRef.current;
+
+    if (messages.length < prevLen) {
+      prevMessagesLengthRef.current = messages.length;
+      lastSeenMessageIdRef.current = lastMsg.message_id;
+      return;
+    }
+
+    if (prevLen === 0 || stickToBottomRef.current) {
+      window.requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+        isNearBottomRef.current = true;
+      });
+      lastSeenMessageIdRef.current = lastMsg.message_id;
+      setUnreadBelowCount(0);
+      prevMessagesLengthRef.current = messages.length;
+      return;
+    }
+
+    const prevLastId = lastSeenMessageIdRef.current;
+    let newMessages: ChatMessage[] = [];
+    if (prevLastId) {
+      const idx = messages.findIndex((m) => m.message_id === prevLastId);
+      if (idx >= 0) {
+        newMessages = messages.slice(idx + 1);
+      }
+    } else if (messages.length > prevLen) {
+      newMessages = messages.slice(prevLen);
+    }
+
+    prevMessagesLengthRef.current = messages.length;
+
+    if (newMessages.length === 0) return;
+
+    if (isNearBottomRef.current) {
+      window.requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      });
+      lastSeenMessageIdRef.current = lastMsg.message_id;
+      setUnreadBelowCount(0);
+      return;
+    }
+
+    const fromOthers = newMessages.filter(
+      (m) => currentUserId === "" || m.sender_id !== currentUserId,
+    ).length;
+    const increment = fromOthers > 0 ? fromOthers : newMessages.length;
+    setUnreadBelowCount((prev) => prev + increment);
+  }, [messages, currentUserId]);
 
   useEffect(() => {
     isAnalyzingTasksRef.current = isAnalyzingTasks;
@@ -363,6 +474,14 @@ export default function ChatPage() {
     try {
       setActiveTargetId(targetId);
       setChatMode(mode);
+      if (scrollToMessageId) {
+        stickToBottomRef.current = false;
+        isNearBottomRef.current = false;
+      } else {
+        stickToBottomRef.current = true;
+        isNearBottomRef.current = true;
+        setUnreadBelowCount(0);
+      }
       const response = ((mode === "dm"
         ? await listDirectMessages(apiAuth, targetId)
         : await listGroupMessages(apiAuth, targetId)) as ListResponse<ChatMessage>);
@@ -475,6 +594,7 @@ export default function ChatPage() {
         }
         setComposer("");
         setComposerFiles([]);
+        scrollMessagesToBottom("smooth");
       } catch (error) {
         handleApiError(error);
       } finally {
@@ -492,6 +612,7 @@ export default function ChatPage() {
       }
       setComposer("");
       setComposerFiles([]);
+      scrollMessagesToBottom("smooth");
       void triggerTaskExtraction(false);
     } catch (error) {
       handleApiError(error);
@@ -1337,7 +1458,8 @@ export default function ChatPage() {
             </div>
           ) : null}
 
-          <div ref={messagesScrollRef} className="flex-1 overflow-auto bg-[#f7f7f7] px-4 py-4">
+          <div className="relative min-h-0 flex-1">
+          <div ref={messagesScrollRef} className="h-full overflow-auto bg-[#f7f7f7] px-4 py-4">
             {sortedMessages.length === 0 ? (
               <div className="grid h-full place-items-center rounded-2xl border border-dashed border-black/10 bg-white text-sm text-muted-foreground">
                 Select a user or group to start chatting.
@@ -1460,6 +1582,21 @@ export default function ChatPage() {
                 })}
               </div>
             )}
+          </div>
+          {unreadBelowCount > 0 ? (
+            <button
+              type="button"
+              className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[#1f3566]/15 bg-white px-3 py-1.5 text-sm font-semibold text-[#1f3566] shadow-lg transition hover:bg-[#eef2ff]"
+              onClick={() => scrollMessagesToBottom("smooth")}
+              aria-label={`${unreadBelowCount} unread message${unreadBelowCount === 1 ? "" : "s"}. Jump to latest.`}
+            >
+              <ChevronDown className="h-4 w-4 shrink-0" />
+              <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-[#1f3566] px-1.5 py-0.5 text-xs font-bold text-white">
+                {unreadBelowCount > 99 ? "99+" : unreadBelowCount}
+              </span>
+              <span>new</span>
+            </button>
+          ) : null}
           </div>
 
           <footer className="shrink-0 border-t border-black/5 bg-white">
