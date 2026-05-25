@@ -13,7 +13,8 @@ def test_unanalyzed_skips_prior_batch_message_ids():
     assert [m["message_id"] for m in unanalyzed] == ["m3"]
 
 
-def test_select_never_returns_analyzed_messages():
+def test_select_never_returns_analyzed_messages(monkeypatch):
+    monkeypatch.setenv("TASK_EXTRACT_BATCH_SIZE", "1")
     all_messages = [
         {"message_id": "m1", "content": "old"},
         {"message_id": "m2", "content": "new"},
@@ -30,3 +31,26 @@ def test_select_never_returns_analyzed_messages():
     msgs, meta = selected
     assert [m["message_id"] for m in msgs] == ["m2"]
     assert meta["message_ids"] == ["m2"]
+
+
+def test_select_waits_for_full_batch_by_default():
+    all_messages = [{"message_id": f"m{i}", "content": str(i)} for i in range(4)]
+    selected = batches.select_messages_for_extraction(
+        all_messages,
+        last_analyzed_id=None,
+        next_batch_index=0,
+        force=False,
+        prior_batches=[],
+    )
+    assert selected is None
+    selected_five = batches.select_messages_for_extraction(
+        all_messages + [{"message_id": "m4", "content": "4"}],
+        last_analyzed_id=None,
+        next_batch_index=0,
+        force=False,
+        prior_batches=[],
+    )
+    assert selected_five is not None
+    msgs, meta = selected_five
+    assert len(msgs) == 5
+    assert meta["message_count"] == 5

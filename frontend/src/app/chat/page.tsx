@@ -67,6 +67,12 @@ import type { ChatTaskAnalysisSection, ChatTaskSuggestion } from "@/types/api";
 
 type ChatMode = "dm" | "group";
 
+const CHAT_POLL_INTERVAL_MS = (() => {
+  const raw = process.env.NEXT_PUBLIC_CHAT_POLL_SECONDS ?? "3";
+  const seconds = Number(raw);
+  return Math.max(2, Number.isFinite(seconds) ? seconds : 3) * 1000;
+})();
+
 type ChatUser = {
   user_id: string;
   username: string;
@@ -88,6 +94,13 @@ type ChatMessage = {
   content: string;
   created_at: string;
 };
+
+function chatMessageThreadKey(items: ChatMessage[]): string {
+  if (items.length === 0) return "";
+  const last = items.at(-1);
+  if (!last) return "";
+  return `${items.length}:${last.message_id}:${last.content}`;
+}
 
 type ChatMessageSearchHit = {
   message_id: string;
@@ -157,6 +170,8 @@ export default function ChatPage() {
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const skipLocalSearchResetRef = useRef(false);
+  const isAnalyzingTasksRef = useRef(false);
+  const lastSyncedMessageKeyRef = useRef("");
   const [infoPanelOpen, setInfoPanelOpen] = useState(true);
   const [askAiBusy, setAskAiBusy] = useState(false);
   const [aiReply, setAiReply] = useState<{ content: string } | null>(null);
@@ -214,6 +229,7 @@ export default function ChatPage() {
     setLastAvailabilityQuestion("");
     setAnalysisSections([]);
     setPendingTaskMessages(0);
+    lastSyncedMessageKeyRef.current = "";
     if (skipLocalSearchResetRef.current) {
       skipLocalSearchResetRef.current = false;
     } else {
@@ -242,6 +258,10 @@ export default function ChatPage() {
       setAnalysisSections([]);
     }
   }, [activeTargetId, apiAuth, chatMode]);
+
+  useEffect(() => {
+    isAnalyzingTasksRef.current = isAnalyzingTasks;
+  }, [isAnalyzingTasks]);
 
   useEffect(() => {
     void refreshAnalysisSections();
@@ -303,6 +323,7 @@ export default function ChatPage() {
             ? await listDirectMessages(apiAuth, targetFromUrl)
             : await listGroupMessages(apiAuth, targetFromUrl)) as ListResponse<ChatMessage>);
           setMessages(response.items);
+          lastSyncedMessageKeyRef.current = chatMessageThreadKey(response.items);
           return;
         }
 
@@ -313,12 +334,14 @@ export default function ChatPage() {
             setChatMode("dm");
             const dmResponse = (await listDirectMessages(apiAuth, topDm.user_id)) as ListResponse<ChatMessage>;
             setMessages(dmResponse.items);
+            lastSyncedMessageKeyRef.current = chatMessageThreadKey(dmResponse.items);
           } else if (groupsResponse.items.length > 0) {
             const topGroup = groupsResponse.items[0];
             setActiveTargetId(topGroup.group_id);
             setChatMode("group");
             const groupResponse = (await listGroupMessages(apiAuth, topGroup.group_id)) as ListResponse<ChatMessage>;
             setMessages(groupResponse.items);
+            lastSyncedMessageKeyRef.current = chatMessageThreadKey(groupResponse.items);
           }
         }
       } catch (error) {
@@ -344,6 +367,7 @@ export default function ChatPage() {
         ? await listDirectMessages(apiAuth, targetId)
         : await listGroupMessages(apiAuth, targetId)) as ListResponse<ChatMessage>);
       setMessages(response.items);
+      lastSyncedMessageKeyRef.current = chatMessageThreadKey(response.items);
       if (scrollToMessageId) {
         setPendingScrollMessageId(scrollToMessageId);
       }
@@ -554,59 +578,113 @@ export default function ChatPage() {
     setFlash(`${label} is UI-only for now (backend workflow route not available).`);
   }
 
-  async function triggerTaskExtraction(force: boolean) {
-    if (!activeTargetId || isAnalyzingTasks) return;
-    setIsAnalyzingTasks(true);
-    try {
-      const result = await extractChatTasks(apiAuth, {
-        chat_type: chatMode,
-        target_id: activeTargetId,
-        force,
-        client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      });
-      if (result.status === "already_analyzed") {
-        setTaskSuggestions([]);
-        setSuggestionScheduleFields({});
-        setSuggestionScheduleLabels({});
-        setFlash(result.message ?? "All messages already analyzed. Send a new message first.");
-        return;
+  const triggerTaskExtraction = useCallback(
+    async (force: boolean, options?: { silent?: boolean }) => {
+      if (!activeTargetId || isAnalyzingTasksRef.current) return;
+      if (!options?.silent) {
+        setIsAnalyzingTasks(true);
       }
-      if (result.status === "pending") {
-        const need = result.pending_until_analyze ?? Math.max(0, (result.threshold ?? taskAnalysisBatchSize) - result.unanalyzed_count);
-        if (force) {
+      isAnalyzingTasksRef.current = true;
+      try {
+        const result = await extractChatTasks(apiAuth, {
+          chat_type: chatMode,
+          target_id: activeTargetId,
+          force,
+          client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        });
+        if (result.status === "already_analyzed") {
+          setTaskSuggestions([]);
+          setSuggestionScheduleFields({});
+          setSuggestionScheduleLabels({});
+          if (!options?.silent) {
+            setFlash(result.message ?? "All messages already analyzed. Send a new message first.");
+          }
+          return;
+        }
+        if (result.status === "pending") {
+          const need =
+            result.pending_until_analyze ??
+            Math.max(0, (result.threshold ?? taskAnalysisBatchSize) - result.unanalyzed_count);
+          if (force && !options?.silent) {
+            setFlash(
+              `Need ${need} more message(s) to analyze the next section (${result.unanalyzed_count}/${result.threshold ?? taskAnalysisBatchSize} collected).`,
+            );
+          }
+          return;
+        }
+        const extracted = result.suggestions ?? [];
+        void refreshAnalysisSections();
+        if (result.status === "analyzed" && extracted.length > 0) {
+          setTaskSuggestions(() => {
+            const enriched = extracted.map((s) => enrichSuggestionWithSchedule(s));
+            const prefilled = scheduleFieldsFromSuggestions(enriched);
+            setSuggestionScheduleFields(prefilled);
+            setSuggestionScheduleLabels(labelsFromScheduleFields(prefilled));
+            return enriched;
+          });
+          setTaskPanelOpen(true);
+        } else if (result.status === "analyzed" && extracted.length === 0 && !options?.silent) {
+          const batch = result.analysis_batch;
           setFlash(
-            `Need ${need} more message(s) to analyze the next section (${result.unanalyzed_count}/${result.threshold ?? taskAnalysisBatchSize} collected).`,
+            batch
+              ? `Section #${batch.batch_index + 1} analyzed — no new task changes (already applied or up to date).`
+              : "No new task changes — items already match the chat.",
           );
         }
-        return;
+      } catch (error) {
+        if (force && !options?.silent) {
+          handleApiError(error);
+        }
+      } finally {
+        isAnalyzingTasksRef.current = false;
+        if (!options?.silent) {
+          setIsAnalyzingTasks(false);
+        }
       }
-      const extracted = result.suggestions ?? [];
-      void refreshAnalysisSections();
-      if (result.status === "analyzed" && extracted.length > 0) {
-        setTaskSuggestions(() => {
-          const enriched = extracted.map((s) => enrichSuggestionWithSchedule(s));
-          const prefilled = scheduleFieldsFromSuggestions(enriched);
-          setSuggestionScheduleFields(prefilled);
-          setSuggestionScheduleLabels(labelsFromScheduleFields(prefilled));
-          return enriched;
-        });
-        setTaskPanelOpen(true);
-      } else if (result.status === "analyzed" && extracted.length === 0) {
-        const batch = result.analysis_batch;
-        setFlash(
-          batch
-            ? `Section #${batch.batch_index + 1} analyzed — no new task changes (already applied or up to date).`
-            : "No new task changes — items already match the chat.",
-        );
+    },
+    [activeTargetId, apiAuth, chatMode, handleApiError, refreshAnalysisSections, taskAnalysisBatchSize],
+  );
+
+  const pollActiveChat = useCallback(async () => {
+    if (!activeTargetId || document.visibilityState === "hidden") return;
+    try {
+      const response = ((chatMode === "dm"
+        ? await listDirectMessages(apiAuth, activeTargetId)
+        : await listGroupMessages(apiAuth, activeTargetId)) as ListResponse<ChatMessage>);
+      const nextKey = chatMessageThreadKey(response.items);
+      const changed = nextKey !== lastSyncedMessageKeyRef.current;
+      if (changed) {
+        lastSyncedMessageKeyRef.current = nextKey;
+        setMessages(response.items);
       }
-    } catch (error) {
-      if (force) {
-        handleApiError(error);
+
+      const sectionsData = await listChatTaskAnalysisSections(apiAuth, {
+        chat_type: chatMode,
+        target_id: activeTargetId,
+      });
+      setAnalysisSections(sectionsData.sections);
+      setTaskAnalysisBatchSize(sectionsData.batch_size);
+      setPendingTaskMessages(sectionsData.pending_count);
+
+      if (
+        changed &&
+        sectionsData.pending_count >= sectionsData.batch_size &&
+        !isAnalyzingTasksRef.current
+      ) {
+        void triggerTaskExtraction(false, { silent: true });
       }
-    } finally {
-      setIsAnalyzingTasks(false);
+    } catch {
+      // Background sync — ignore transient errors.
     }
-  }
+  }, [activeTargetId, apiAuth, chatMode, triggerTaskExtraction]);
+
+  useEffect(() => {
+    if (!authed || !activeTargetId) return;
+    const id = window.setInterval(() => {
+      void pollActiveChat();
+    }, CHAT_POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [authed, activeTargetId, pollActiveChat]);
 
   async function handleAcceptSuggestion(index: number) {
     const suggestion = taskSuggestions[index];
