@@ -31,9 +31,7 @@
 |----------|---------|
 | `AUTH_SECRET` | Auth.js signing (match `AUTH_JWT_SECRET`) |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth |
-| `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` | GitHub OAuth |
 | `AUTH_URL` / `NEXTAUTH_URL` | `https://your-app.vercel.app` |
-| `NEXT_PUBLIC_ALLOW_PASSWORD_AUTH` | `false` in production |
 
 ## Backups
 
