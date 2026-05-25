@@ -1,7 +1,8 @@
 export type AuthRedirectReason =
   | "login_required"
   | "session_expired"
-  | "logged_out";
+  | "logged_out"
+  | "backend_sync_failed";
 
 /** Default route after sign-in (dashboard at `/` is disabled for now). */
 export const DEFAULT_AUTHENTICATED_PATH = "/app/chat";
@@ -16,13 +17,19 @@ export function messageForAuthReason(reason: string | null): string | null {
       return "Please sign in to continue.";
     case "logged_out":
       return "You have been signed out.";
+    case "backend_sync_failed":
+      return "Google sign-in succeeded, but the backend could not create your account. Check API URL, AUTH_JWT_SECRET, and Railway logs, then try again.";
     default:
       return null;
   }
 }
 
 export function authReasonIsError(reason: string | null): boolean {
-  return reason === "session_expired" || reason === "login_required";
+  return (
+    reason === "session_expired" ||
+    reason === "login_required" ||
+    reason === "backend_sync_failed"
+  );
 }
 
 export function loginPathWithReason(reason: AuthRedirectReason): string {

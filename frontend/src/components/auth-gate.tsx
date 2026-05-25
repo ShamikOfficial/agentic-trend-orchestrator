@@ -1,8 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useEffect, useSyncExternalStore } from "react";
+import { signOut, useSession } from "next-auth/react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { getAuthToken } from "@/lib/auth-store";
 import {
@@ -11,7 +11,7 @@ import {
   loginPathWithReason,
   shouldRedirectAuthedAwayFromAuthPages,
 } from "@/lib/auth-redirect";
-import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
+import { clearBearerCache, ensureOAuthBackendSession } from "@/lib/auth-session";
 
 function subscribeAuth(onStoreChange: () => void) {
   window.addEventListener("storage", onStoreChange);
@@ -22,30 +22,60 @@ function subscribeAuth(onStoreChange: () => void) {
   };
 }
 
+type OAuthBackendState = "idle" | "syncing" | "ready" | "failed";
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const legacyToken = useSyncExternalStore(subscribeAuth, getAuthToken, () => "");
   const { status } = useSession();
+  const [oauthBackend, setOauthBackend] = useState<OAuthBackendState>("idle");
 
-  const authed = status === "authenticated" || Boolean(legacyToken);
+  const legacyAuthed = Boolean(legacyToken);
+  const oauthAuthed = status === "authenticated" && oauthBackend === "ready";
+  const authed = legacyAuthed || oauthAuthed;
+  const oauthSyncing =
+    status === "authenticated" && !legacyAuthed && oauthBackend === "syncing";
   const sessionReady = status !== "loading";
   const publicRoute = isPublicPath(pathname);
 
   useEffect(() => {
-    if (status === "authenticated") {
-      void (async () => {
-        const bearer = await fetchBearerToken();
-        if (bearer) {
-          await syncOAuthUser(bearer);
+    if (status !== "authenticated" || legacyAuthed) {
+      if (status !== "authenticated") {
+        setOauthBackend("idle");
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setOauthBackend("syncing");
+
+    void (async () => {
+      try {
+        await ensureOAuthBackendSession();
+        if (!cancelled) {
+          setOauthBackend("ready");
           window.dispatchEvent(new Event("auth-changed"));
         }
-      })();
-    }
-  }, [status]);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+        setOauthBackend("failed");
+        clearBearerCache();
+        await signOut({ callbackUrl: loginPathWithReason("backend_sync_failed") });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status, legacyAuthed]);
 
   useEffect(() => {
-    if (!sessionReady) return;
+    if (!sessionReady || oauthSyncing) {
+      return;
+    }
 
     if (!authed && !publicRoute) {
       router.replace(loginPathWithReason("login_required"));
@@ -55,14 +85,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     if (authed && shouldRedirectAuthedAwayFromAuthPages(pathname)) {
       router.replace(DEFAULT_AUTHENTICATED_PATH);
     }
-  }, [sessionReady, authed, publicRoute, pathname, router]);
+  }, [sessionReady, oauthSyncing, authed, publicRoute, pathname, router]);
 
   const showShell = authed && !shouldRedirectAuthedAwayFromAuthPages(pathname);
 
-  if (!sessionReady && !publicRoute) {
+  if ((oauthSyncing || (!sessionReady && !publicRoute)) && !publicRoute) {
     return (
       <main className="flex min-h-screen w-full items-center justify-center px-4 py-16 text-muted-foreground">
-        Loading…
+        {oauthSyncing ? "Connecting to workspace…" : "Loading…"}
       </main>
     );
   }
