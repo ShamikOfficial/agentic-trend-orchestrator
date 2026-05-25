@@ -15,8 +15,8 @@ class AnalysisBatchMeta(TypedDict):
 
 
 def task_extract_batch_size() -> int:
-    """Messages per extract pass (default 1 = one chat line at a time)."""
-    return max(1, int(os.getenv("TASK_EXTRACT_BATCH_SIZE", "1")))
+    """Messages per auto extract pass (default 5)."""
+    return max(1, int(os.getenv("TASK_EXTRACT_BATCH_SIZE", "5")))
 
 
 def task_extract_force_count() -> int:
@@ -103,7 +103,7 @@ def select_messages_for_extraction(
 
     if not unanalyzed:
         return None
-    if len(unanalyzed) < batch_size and not force:
+    if len(unanalyzed) < batch_size:
         return None
 
     batch_messages = unanalyzed[:batch_size]
