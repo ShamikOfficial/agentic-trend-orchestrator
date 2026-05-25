@@ -331,6 +331,7 @@ export default function ChatPage() {
     el.scrollTop = el.scrollHeight;
     pendingScrollAfterSendRef.current = false;
     isNearBottomRef.current = true;
+    stickToBottomRef.current = true;
 
     const last = messages[messages.length - 1];
     lastSeenMessageIdRef.current = last.message_id;
@@ -340,6 +341,10 @@ export default function ChatPage() {
     if (activeTargetId) {
       markConversationRead(toChatKey(chatMode, activeTargetId), last.message_id);
     }
+
+    window.requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
   }, [messages, activeTargetId, chatMode]);
 
   useEffect(() => {
@@ -402,7 +407,7 @@ export default function ChatPage() {
 
     if (newMessages.length === 0) return;
 
-    if (isNearBottomRef.current) {
+    if (pendingScrollAfterSendRef.current || stickToBottomRef.current || isNearBottomRef.current) {
       lastSeenMessageIdRef.current = lastMsg.message_id;
       setUnreadBelowCount(0);
       if (activeTargetId) {
@@ -414,8 +419,9 @@ export default function ChatPage() {
     const fromOthers = newMessages.filter(
       (m) => currentUserId === "" || m.sender_id !== currentUserId,
     ).length;
-    const increment = fromOthers > 0 ? fromOthers : newMessages.length;
-    setUnreadBelowCount((prev) => prev + increment);
+    if (fromOthers > 0) {
+      setUnreadBelowCount((prev) => prev + fromOthers);
+    }
   }, [messages, currentUserId, activeTargetId, chatMode]);
 
   useEffect(() => {
@@ -637,11 +643,15 @@ export default function ChatPage() {
           await sendDirectMessage(apiAuth, activeTargetId, body);
           pendingScrollAfterSendRef.current = true;
           stickToBottomRef.current = true;
+          isNearBottomRef.current = true;
+          setUnreadBelowCount(0);
           await loadMessages(activeTargetId, "dm");
         } else {
           await sendGroupMessage(apiAuth, activeTargetId, body);
           pendingScrollAfterSendRef.current = true;
           stickToBottomRef.current = true;
+          isNearBottomRef.current = true;
+          setUnreadBelowCount(0);
           await loadMessages(activeTargetId, "group");
         }
         setComposer("");
@@ -656,6 +666,8 @@ export default function ChatPage() {
     try {
       pendingScrollAfterSendRef.current = true;
       stickToBottomRef.current = true;
+      isNearBottomRef.current = true;
+      setUnreadBelowCount(0);
       if (chatMode === "dm") {
         await sendDirectMessage(apiAuth, activeTargetId, body);
         await loadMessages(activeTargetId, "dm");
