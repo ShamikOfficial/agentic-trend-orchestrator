@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -63,6 +63,7 @@ import {
   suggestionNeedsSchedule,
 } from "@/lib/schedule-utils";
 import { visibleChatAiActions } from "@/lib/feature-flags";
+import { markConversationRead, toChatKey } from "@/lib/chat-unread-store";
 import type { ChatTaskAnalysisSection, ChatTaskSuggestion } from "@/types/api";
 
 type ChatMode = "dm" | "group";
@@ -183,6 +184,7 @@ export default function ChatPage() {
   const lastSeenMessageIdRef = useRef<string | null>(null);
   const prevMessagesLengthRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const pendingScrollAfterSendRef = useRef(false);
   const [infoPanelOpen, setInfoPanelOpen] = useState(true);
   const [askAiBusy, setAskAiBusy] = useState(false);
   const [aiReply, setAiReply] = useState<{ content: string } | null>(null);
@@ -247,6 +249,7 @@ export default function ChatPage() {
     stickToBottomRef.current = true;
     lastSeenMessageIdRef.current = null;
     prevMessagesLengthRef.current = 0;
+    pendingScrollAfterSendRef.current = false;
     if (skipLocalSearchResetRef.current) {
       skipLocalSearchResetRef.current = false;
     } else {
@@ -280,21 +283,64 @@ export default function ChatPage() {
     messagesRef.current = messages;
   }, [messages]);
 
-  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const el = messagesScrollRef.current;
-    if (!el) return;
-    window.requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior });
-      isNearBottomRef.current = true;
+  const syncActiveConversationRead = useCallback(() => {
+    if (!activeTargetId) return;
+    const last = messagesRef.current.at(-1);
+    if (!last) return;
+    markConversationRead(toChatKey(chatMode, activeTargetId), last.message_id);
+  }, [activeTargetId, chatMode]);
+
+  const scrollMessagesToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
       stickToBottomRef.current = true;
-      setUnreadBelowCount(0);
-      const last = messagesRef.current.at(-1);
-      if (last) {
-        lastSeenMessageIdRef.current = last.message_id;
-      }
-      prevMessagesLengthRef.current = messagesRef.current.length;
-    });
-  }, []);
+      isNearBottomRef.current = true;
+
+      const attemptScroll = (retriesLeft: number) => {
+        const el = messagesScrollRef.current;
+        if (!el) return;
+
+        el.scrollTo({ top: el.scrollHeight, behavior });
+        const nearBottom = isMessagesNearBottom(el);
+
+        if (!nearBottom && retriesLeft > 0) {
+          window.requestAnimationFrame(() => attemptScroll(retriesLeft - 1));
+          return;
+        }
+
+        setUnreadBelowCount(0);
+        const last = messagesRef.current.at(-1);
+        if (last) {
+          lastSeenMessageIdRef.current = last.message_id;
+        }
+        prevMessagesLengthRef.current = messagesRef.current.length;
+        syncActiveConversationRead();
+      };
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => attemptScroll(4));
+      });
+    },
+    [syncActiveConversationRead],
+  );
+
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el || messages.length === 0) return;
+    if (!pendingScrollAfterSendRef.current && !stickToBottomRef.current) return;
+
+    el.scrollTop = el.scrollHeight;
+    pendingScrollAfterSendRef.current = false;
+    isNearBottomRef.current = true;
+
+    const last = messages[messages.length - 1];
+    lastSeenMessageIdRef.current = last.message_id;
+    prevMessagesLengthRef.current = messages.length;
+    setUnreadBelowCount(0);
+
+    if (activeTargetId) {
+      markConversationRead(toChatKey(chatMode, activeTargetId), last.message_id);
+    }
+  }, [messages, activeTargetId, chatMode]);
 
   useEffect(() => {
     const el = messagesScrollRef.current;
@@ -308,6 +354,9 @@ export default function ChatPage() {
         const last = messagesRef.current.at(-1);
         if (last) {
           lastSeenMessageIdRef.current = last.message_id;
+          if (activeTargetId) {
+            markConversationRead(toChatKey(chatMode, activeTargetId), last.message_id);
+          }
         }
       }
     };
@@ -329,13 +378,12 @@ export default function ChatPage() {
     }
 
     if (prevLen === 0 || stickToBottomRef.current) {
-      window.requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-        isNearBottomRef.current = true;
-      });
       lastSeenMessageIdRef.current = lastMsg.message_id;
       setUnreadBelowCount(0);
       prevMessagesLengthRef.current = messages.length;
+      if (activeTargetId) {
+        markConversationRead(toChatKey(chatMode, activeTargetId), lastMsg.message_id);
+      }
       return;
     }
 
@@ -355,11 +403,11 @@ export default function ChatPage() {
     if (newMessages.length === 0) return;
 
     if (isNearBottomRef.current) {
-      window.requestAnimationFrame(() => {
-        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      });
       lastSeenMessageIdRef.current = lastMsg.message_id;
       setUnreadBelowCount(0);
+      if (activeTargetId) {
+        markConversationRead(toChatKey(chatMode, activeTargetId), lastMsg.message_id);
+      }
       return;
     }
 
@@ -368,7 +416,7 @@ export default function ChatPage() {
     ).length;
     const increment = fromOthers > 0 ? fromOthers : newMessages.length;
     setUnreadBelowCount((prev) => prev + increment);
-  }, [messages, currentUserId]);
+  }, [messages, currentUserId, activeTargetId, chatMode]);
 
   useEffect(() => {
     isAnalyzingTasksRef.current = isAnalyzingTasks;
@@ -587,14 +635,17 @@ export default function ChatPage() {
         }
         if (chatMode === "dm") {
           await sendDirectMessage(apiAuth, activeTargetId, body);
+          pendingScrollAfterSendRef.current = true;
+          stickToBottomRef.current = true;
           await loadMessages(activeTargetId, "dm");
         } else {
           await sendGroupMessage(apiAuth, activeTargetId, body);
+          pendingScrollAfterSendRef.current = true;
+          stickToBottomRef.current = true;
           await loadMessages(activeTargetId, "group");
         }
         setComposer("");
         setComposerFiles([]);
-        scrollMessagesToBottom("smooth");
       } catch (error) {
         handleApiError(error);
       } finally {
@@ -603,6 +654,8 @@ export default function ChatPage() {
       return;
     }
     try {
+      pendingScrollAfterSendRef.current = true;
+      stickToBottomRef.current = true;
       if (chatMode === "dm") {
         await sendDirectMessage(apiAuth, activeTargetId, body);
         await loadMessages(activeTargetId, "dm");
@@ -612,7 +665,6 @@ export default function ChatPage() {
       }
       setComposer("");
       setComposerFiles([]);
-      scrollMessagesToBottom("smooth");
       void triggerTaskExtraction(false);
     } catch (error) {
       handleApiError(error);
@@ -957,6 +1009,28 @@ export default function ChatPage() {
       ),
     [messages],
   );
+
+  const senderNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const user of users) {
+      const label = user.display_name?.trim() || user.username?.trim();
+      if (label) {
+        map.set(user.user_id, label);
+      }
+    }
+    const self = getAuthUser();
+    if (self?.user_id) {
+      const selfLabel = self.display_name?.trim() || self.username?.trim();
+      if (selfLabel) {
+        map.set(self.user_id, selfLabel);
+      }
+    }
+    return map;
+  }, [users]);
+
+  function resolveSenderName(senderId: string): string {
+    return senderNameById.get(senderId) ?? senderId;
+  }
 
   const localSearchMatches = useMemo(() => {
     const q = localSearchQuery.trim().toLowerCase();
@@ -1468,6 +1542,8 @@ export default function ChatPage() {
               <div className="space-y-4">
                 {sortedMessages.map((msg) => {
                   const mine = currentUserId !== "" && msg.sender_id === currentUserId;
+                  const showGroupSenderName = chatMode === "group" && !mine;
+                  const senderName = resolveSenderName(msg.sender_id);
                   const stats = reactionStats(msg.message_id);
                   const sectionIdx = messageSectionIndex.get(msg.message_id);
                   const showSectionStart = sectionStartIds.has(msg.message_id);
@@ -1493,13 +1569,10 @@ export default function ChatPage() {
                         localSearchActiveId === msg.message_id && "rounded-2xl ring-2 ring-[#facc15] ring-offset-2",
                       )}
                     >
-                      <div className={`group max-w-[72%] ${mine ? "items-end" : "items-start"} flex flex-col gap-1`}>
-                        {!mine ? (
-                          <p className="text-base font-medium text-[#5f6fcf]">{msg.sender_id}</p>
-                        ) : null}
-                        <div className="relative pt-9">
+                      <div className={`group max-w-[72%] ${mine ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+                        <div className="relative">
                           <div
-                            className={`pointer-events-none absolute top-0 z-10 flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-1 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 ${mine ? "right-0" : "left-0"}`}
+                            className={`pointer-events-none absolute bottom-full z-10 mb-1 flex items-center gap-1 rounded-full border border-black/10 bg-white px-2 py-1 opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 ${mine ? "right-0" : "left-0"}`}
                           >
                               {QUICK_REACTIONS.map((emoji) => (
                                 <button
@@ -1539,6 +1612,11 @@ export default function ChatPage() {
                                 </button>
                               ) : null}
                           </div>
+                          {showGroupSenderName ? (
+                            <p className={`mb-0.5 text-[11px] font-medium leading-tight text-[#64748b] ${mine ? "text-right" : "text-left"}`}>
+                              {senderName}
+                            </p>
+                          ) : null}
                           <div className={`rounded-2xl px-4 py-2 text-sm shadow-sm ${mine ? "rounded-br-md bg-black text-white" : "rounded-bl-md bg-[#e8e8e8] text-[#222]"}`}>
                             {msg.content}
                           </div>

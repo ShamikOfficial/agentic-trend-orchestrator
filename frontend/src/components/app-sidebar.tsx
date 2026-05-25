@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import {
   BarChart2,
   CheckSquare,
@@ -16,6 +17,7 @@ import { signOut } from "next-auth/react";
 import { clearBearerCache } from "@/lib/auth-session";
 import { clearAuthToken } from "@/lib/auth-store";
 import { loginPathWithReason } from "@/lib/auth-redirect";
+import { clearChatUnreadState, getChatUnreadTotal, subscribeChatUnread } from "@/lib/chat-unread-store";
 import {
   SCRIPT_GENERATION_ENABLED,
   TREND_DETECTION_ENABLED,
@@ -72,10 +74,12 @@ const visibleNav = nav.filter((item) => item.enabled);
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const chatUnreadTotal = useSyncExternalStore(subscribeChatUnread, getChatUnreadTotal, () => 0);
 
   function handleLogout() {
     clearAuthToken();
     clearBearerCache();
+    clearChatUnreadState();
     void signOut({ callbackUrl: loginPathWithReason("logged_out") });
     window.dispatchEvent(new Event("auth-changed"));
     router.replace(loginPathWithReason("logged_out"));
@@ -99,7 +103,7 @@ export function AppSidebar() {
               key={href}
               href={href}
               title={label}
-              className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
+              className={`relative flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
                 isActive
                   ? "bg-[#101828] text-white shadow-sm"
                   : "text-[#9a9ea6] hover:bg-[#f3f4f6] hover:text-[#101828]"
@@ -107,6 +111,14 @@ export function AppSidebar() {
               aria-current={isActive ? "page" : undefined}
             >
               <Icon className="h-5 w-5" />
+              {href === "/app/chat" && chatUnreadTotal > 0 ? (
+                <span
+                  className="absolute -top-1 -right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white"
+                  aria-label={`${chatUnreadTotal} unread chat message${chatUnreadTotal === 1 ? "" : "s"}`}
+                >
+                  {chatUnreadTotal > 99 ? "99+" : chatUnreadTotal}
+                </span>
+              ) : null}
             </Link>
           );
         })}
