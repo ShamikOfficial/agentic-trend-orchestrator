@@ -58,6 +58,26 @@ def test_oauth_sync_creates_user(client):
     assert body["user_id"].startswith("usr_")
 
 
+def test_oauth_sync_accepts_issuer_mismatch_when_configured(client, monkeypatch):
+    monkeypatch.setenv("AUTH_JWT_ISSUER", "https://expected.example.com")
+    token = jwt.encode(
+        {
+            "email": "issuer@example.com",
+            "name": "Issuer Test",
+            "provider": "google",
+            "providerAccountId": "google-issuer-1",
+            "iss": "https://actual.example.com",
+        },
+        "test-secret-for-jwt",
+        algorithm="HS256",
+    )
+    response = client.post(
+        "/api/v1/auth/oauth/sync",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+
+
 def test_workflow_repo_round_trip():
     item = WorkflowItem(
         item_id="item_test1",
