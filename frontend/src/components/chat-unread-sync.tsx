@@ -38,13 +38,17 @@ export function ChatUnreadSync() {
             const response = (await listDirectMessages("", user.user_id)) as {
               items: { message_id: string; sender_id: string }[];
             };
-            return countUnreadMessages(toChatKey("dm", user.user_id), response.items, currentUserId);
+            return countUnreadMessages(toChatKey("dm", user.user_id), response.items, currentUserId, {
+              seedBaselineIfMissing: true,
+            });
           }),
           ...joinedGroups.map(async (group) => {
             const response = (await listGroupMessages("", group.group_id)) as {
               items: { message_id: string; sender_id: string }[];
             };
-            return countUnreadMessages(toChatKey("group", group.group_id), response.items, currentUserId);
+            return countUnreadMessages(toChatKey("group", group.group_id), response.items, currentUserId, {
+              seedBaselineIfMissing: true,
+            });
           }),
         ]);
 

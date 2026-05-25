@@ -75,18 +75,28 @@ export function countUnreadMessages(
   chatKey: string,
   messages: MessageLike[],
   currentUserId: string,
+  options?: { seedBaselineIfMissing?: boolean },
 ): number {
   if (messages.length === 0) return 0;
 
   const lastSeenId = getLastSeenMessageId(chatKey);
-  let unseen: MessageLike[];
+  const latestId = messages[messages.length - 1]?.message_id;
 
   if (!lastSeenId) {
-    unseen = messages;
-  } else {
-    const idx = messages.findIndex((m) => m.message_id === lastSeenId);
-    unseen = idx >= 0 ? messages.slice(idx + 1) : messages;
+    if (options?.seedBaselineIfMissing && latestId) {
+      markConversationRead(chatKey, latestId);
+    }
+    return 0;
   }
 
+  const idx = messages.findIndex((m) => m.message_id === lastSeenId);
+  if (idx < 0) {
+    if (options?.seedBaselineIfMissing && latestId) {
+      markConversationRead(chatKey, latestId);
+    }
+    return 0;
+  }
+
+  const unseen = messages.slice(idx + 1);
   return unseen.filter((m) => currentUserId === "" || m.sender_id !== currentUserId).length;
 }
