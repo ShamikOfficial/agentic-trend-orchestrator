@@ -45,7 +45,6 @@ import {
   sendGroupMessage,
 } from "@/lib/chat-api";
 import { clearAuthToken, getAuthToken, getAuthUser } from "@/lib/auth-store";
-import { fetchBearerToken, syncOAuthUser } from "@/lib/auth-session";
 import { loginPathWithReason } from "@/lib/auth-redirect";
 import { ChatInfoCalendar } from "@/components/chat/chat-info-calendar";
 import { ChatSchedulePicker } from "@/components/chat/chat-schedule-picker";
@@ -190,18 +189,13 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (sessionStatus === "authenticated") {
-      void (async () => {
-        const bearer = await fetchBearerToken();
-        if (bearer) {
-          await syncOAuthUser(bearer);
-          const user = getAuthUser();
-          if (user?.user_id) setCurrentUserId(user.user_id);
-          window.dispatchEvent(new Event("auth-changed"));
-        }
-      })();
-    }
-  }, [sessionStatus]);
+    const onAuthChanged = () => {
+      setToken(getAuthToken());
+      setCurrentUserId(getAuthUser()?.user_id ?? "");
+    };
+    window.addEventListener("auth-changed", onAuthChanged);
+    return () => window.removeEventListener("auth-changed", onAuthChanged);
+  }, []);
 
   useEffect(() => {
     if (!mounted || sessionStatus === "loading") return;

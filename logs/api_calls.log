@@ -4087,3 +4087,4 @@ GET /api/v1/workflow/items status=200 duration_ms=58.20 user=usr_367ea766
 GET /api/v1/workflow/items status=200 duration_ms=55.68 user=usr_367ea766
 GET /api/v1/workflow/logs status=200 duration_ms=64.89 user=usr_367ea766
 GET /api/v1/workflow/logs status=200 duration_ms=64.32 user=usr_367ea766
+GET /api/v1/health status=200 duration_ms=8.76 user=anonymous
