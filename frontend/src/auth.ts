@@ -16,10 +16,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
   trustHost: true,
   callbacks: {
-    async jwt({ token, account }) {
+    async jwt({ token, account, profile }) {
       if (account) {
         token.provider = account.provider;
         token.providerAccountId = account.providerAccountId;
+      }
+      if (profile && typeof profile === "object") {
+        const p = profile as { email?: string | null; name?: string | null };
+        if (p.email && !token.email) {
+          token.email = p.email;
+        }
+        if (p.name && !token.name) {
+          token.name = p.name;
+        }
       }
       return token;
     },

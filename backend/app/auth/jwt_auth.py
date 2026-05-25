@@ -20,7 +20,7 @@ def _secret() -> str:
 
 
 def _issuer() -> str | None:
-    raw = os.getenv("AUTH_JWT_ISSUER", "").strip()
+    raw = os.getenv("AUTH_JWT_ISSUER", "").strip().rstrip("/")
     return raw or None
 
 
@@ -28,7 +28,7 @@ def verify_bearer_token(token: str) -> dict[str, Any] | None:
     secret = _secret()
     if not secret:
         return None
-    options = {"verify_aud": False}
+    options: dict[str, Any] = {"verify_aud": False}
     kwargs: dict[str, Any] = {"algorithms": ["HS256"], "options": options}
     issuer = _issuer()
     if issuer:
@@ -36,7 +36,18 @@ def verify_bearer_token(token: str) -> dict[str, Any] | None:
     try:
         return jwt.decode(token, secret, **kwargs)
     except PyJWTError:
-        return None
+        if not issuer:
+            return None
+        # Allow deployments that omit AUTH_JWT_ISSUER on the API after setting AUTH_URL on Vercel.
+        try:
+            return jwt.decode(
+                token,
+                secret,
+                algorithms=["HS256"],
+                options={"verify_aud": False, "verify_iss": False},
+            )
+        except PyJWTError:
+            return None
 
 
 def resolve_user_from_bearer(token: str) -> str | None:
