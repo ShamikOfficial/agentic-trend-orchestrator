@@ -1,69 +1,107 @@
-# Web MVP Workspace
+# Agentic Trend Orchestrator
 
-This repository contains a web MVP for:
+[![Live Demo](https://img.shields.io/badge/Demo-Live-brightgreen?style=flat-square)](https://project-l0sn8.vercel.app)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python&logoColor=white)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178C6?style=flat-square&logo=typescript&logoColor=white)]()
+
+> An agentic AI platform for creators that automates trend discovery, predicts content performance via semantic analysis, and orchestrates team workflows through a persistent knowledge memory layer.
+
+---
+
+## Problem
+
+Content teams juggle trend research, task coordination, and cross-channel communication across disconnected tools. There is no single workspace that combines AI-assisted planning with real-time collaboration.
+
+## Solution
+
+A full-stack web platform with session-guarded workspaces, an AI team assistant (notes → summary → tasks → reminders), workflow boards with milestones, and real-time chat (DMs, groups, join requests).
+
+```mermaid
+flowchart LR
+    A[Creator / Team] --> B[Next.js Frontend]
+    B --> C[FastAPI Backend]
+    C --> D[Auth & Sessions]
+    C --> E[Team Assistant / AI]
+    C --> F[Workflow Board]
+    C --> G[Real-time Chat]
+    E --> H[Knowledge Memory]
+```
+
+## Key Features
+
 - Auth + session-guarded workspace access
-- Team Assistant (notes -> summary -> tasks -> reminders)
-- Workflow management (board + stage moves + milestones + uploads)
-- Chat (DM + groups + join requests)
+- Team Assistant — notes, summaries, tasks, reminders
+- Workflow management — board, stage moves, milestones, uploads
+- Chat — DM, groups, join requests
+- Deployed frontend on Vercel with CORS-aware API
+
+## Tech Stack
+
+| Layer | Tools |
+|-------|-------|
+| Frontend | Next.js, React, Tailwind, shadcn/ui |
+| Backend | FastAPI, Python |
+| Database | SQLAlchemy + Alembic migrations |
+| Deploy | Vercel (frontend), Docker-ready backend |
 
 ## Project Structure
-- `backend/` FastAPI app, routes, services, and models
-- `frontend/` Next.js web application (React + Tailwind + shadcn/ui)
-- `docs/` API contract, coverage matrix, and progress tracking
-- `uploads/` attachment files served by backend
-- `logs/` API call logs
 
-## Environment Setup (Windows PowerShell)
-1. Create virtual environment:
+```
+agentic-trend-orchestrator/
+├── backend/          FastAPI app, routes, services, models
+├── frontend/         Next.js web application
+├── docs/             API contract, coverage matrix, progress
+├── uploads/          Attachment files served by backend
+└── logs/             API call logs
+```
+
+## Quick Start (Windows PowerShell)
+
+1. Create and activate virtual environment:
    ```powershell
    python -m venv .venv
-   ```
-2. Activate virtual environment:
-   ```powershell
    .\.venv\Scripts\Activate.ps1
-   ```
-3. Install dependencies:
-   ```powershell
-   python -m pip install -r requirements.txt
-   ```
-4. Create local env file (single file for backend + frontend):
-   ```powershell
+   pip install -r requirements.txt
    Copy-Item .env.example .env
    ```
 
-## Run Tests
+2. Run backend:
+   ```powershell
+   python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+   ```
+
+3. Run frontend (separate terminal):
+   ```powershell
+   cd frontend
+   npm install
+   npm run dev
+   ```
+   Open `http://localhost:3000`
+
+## Tests
+
 ```powershell
 python -m pytest backend/tests
 ```
 
-## Run Backend API
-```powershell
-python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
-```
+## Deploy
 
-Backend and frontend both use root `.env`.
-Set `APP_ENV=development` for local mode and `APP_ENV=production` for hosted mode.
+See [Deploy frontend on Vercel](#deploy-frontend-on-vercel-production--preview) in the original setup notes below.
 
-## Run Frontend Web App (separate terminal)
-```powershell
-cd frontend
-npm run dev
-```
-Then open `http://localhost:3000` in your browser.
+### Deploy frontend on Vercel (Production + Preview)
 
-## Deploy frontend on Vercel (Production + Preview)
-
-1. Push this repository to GitHub (or GitLab / Bitbucket).
+1. Push this repository to GitHub.
 2. In [Vercel](https://vercel.com/new), import the repo and set **Root Directory** to `frontend`.
-3. Under **Environment Variables**, add `NEXT_PUBLIC_API_BASE_URL` with your public API base URL (must end with `/api/v1`). Scope it separately for **Production** and **Preview** if you use different APIs for staging vs production.
-4. Deploy the **production** branch (often `main`). Every pull request and non-production branch gets a **Preview** URL automatically.
-5. On the machine that runs the FastAPI backend, CORS allows `https://*.vercel.app` by default (`CORS_ALLOW_VERCEL` defaults to on). Add domains to `CORS_ORIGINS` for custom hostnames, or set `CORS_ALLOW_VERCEL=false` to allow only `CORS_ORIGINS` + localhost (see root `.env.example`).
-
-Frontend also reads root `.env` (via `frontend/next.config.ts`), so you keep one env source.
+3. Add `NEXT_PUBLIC_API_BASE_URL` (must end with `/api/v1`) for Production and Preview scopes.
+4. On the FastAPI host, CORS allows `https://*.vercel.app` by default. Customize via `CORS_ORIGINS` in `.env`.
 
 ## Notes
-- Auth users are saved under `data/auth_store.json` (gitignored) so logins survive `uvicorn --reload`. Delete that file to reset accounts. Passwords are stored in plaintext for local MVP only.
-- Root `requirements.txt` is the single Python dependency source for backend services and tests.
-- Frontend dependencies are managed in `frontend/package.json`.
+
+- Auth users persist under `data/auth_store.json` (gitignored). Passwords are plaintext for local MVP only.
 - API base URL defaults to `http://127.0.0.1:8000/api/v1`.
-- Most `/api/v1` routes require `x-auth-token`; register/login routes are public.
+- Most `/api/v1` routes require `x-auth-token`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
