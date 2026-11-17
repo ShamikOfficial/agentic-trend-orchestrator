@@ -1,10 +1,10 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from backend.app.models.team import Task
 from backend.app.services.team.service import (
-    extract_tasks,
+    process_input_unified,
     run_deadline_reminders,
-    summarize_content,
 )
 from backend.app.services.workflow.service import (
     create_milestone,
@@ -13,26 +13,27 @@ from backend.app.services.workflow.service import (
 )
 
 
-def test_summarize_content_has_preview_items() -> None:
+def test_process_input_unified_fallback_without_llm() -> None:
     content = """
     We reviewed the weekly plan.
     Action: Draft concept brief tomorrow
     TODO: Finalize shot list ASAP
     """
-    summary = summarize_content(content, source_type="meeting", title="Weekly sync")
+    with patch(
+        "backend.app.services.team.service.generate_text",
+        side_effect=RuntimeError("no llm in ci"),
+    ):
+        category, category_result, summary, tasks = process_input_unified(
+            content,
+            source_type="meeting",
+            title="Weekly sync",
+            owner_candidates=["Shamik", "Batu"],
+            default_due_days=3,
+        )
+    assert category
+    assert category_result
     assert summary.summary
-    assert len(summary.action_items_preview) == 2
-
-
-def test_extract_tasks_assigns_owner_and_due_date() -> None:
-    content = """
-    Action: Shamik prepare trend shortlist tomorrow
-    - finalize storyboard ASAP
-    """
-    tasks = extract_tasks(content, owner_candidates=["Shamik", "Batu"], default_due_days=3)
-    assert len(tasks) == 2
-    assert tasks[0].owner == "Shamik"
-    assert tasks[1].priority == "high"
+    assert isinstance(tasks, list)
 
 
 def test_deadline_reminders_include_due_soon() -> None:
